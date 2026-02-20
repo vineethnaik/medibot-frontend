@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { UserRole } from '@/types';
-import { Download, DollarSign, Clock, AlertTriangle, X, Loader2, FileText, Plus } from 'lucide-react';
+import { Download, DollarSign, Clock, AlertTriangle, X, Loader2, FileText, Plus, CreditCard, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import PageTransition from '@/components/layout/PageTransition';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchInvoices, fetchClaims, makePayment, generateInvoice, DbInvoice } from '@/services/dataService';
+import { fetchInvoices, fetchClaims, generateInvoice, createRazorpayOrder, verifyRazorpayPayment } from '@/services/dataService';
+import { openRazorpayCheckout } from '@/lib/razorpay';
+import type { DbInvoice } from '@/services/dataService';
 import AnimatedCounter from '@/components/layout/AnimatedCounter';
 
 interface LineItem {
@@ -31,7 +33,7 @@ const BillingPayments: React.FC = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [payModal, setPayModal] = useState<DbInvoice | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState('Credit Card');
+  const [payStep, setPayStep] = useState<'confirm' | 'processing' | 'success'>('confirm');
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [selectedClaimId, setSelectedClaimId] = useState('');
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -59,18 +61,36 @@ const BillingPayments: React.FC = () => {
     enabled: isBillingStaff,
   });
 
-  const payMutation = useMutation({
-    mutationFn: ({ invoiceId, amount }: { invoiceId: string; amount: number }) =>
-      makePayment(invoiceId, amount, paymentMethod),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast({ title: 'Payment Successful!', description: 'Invoice has been paid.' });
-      setPayModal(null);
-    },
-    onError: (err: Error) => {
-      toast({ title: 'Payment Failed', description: err.message, variant: 'destructive' });
-    },
-  });
+  const handlePayWithRazorpay = async (inv: DbInvoice) => {
+    try {
+      const order = await createRazorpayOrder(inv.id, inv.total_amount);
+      openRazorpayCheckout(
+        { orderId: order.orderId, keyId: order.keyId, amount: order.amount, currency: order.currency },
+        {
+          name: 'MediBots Health',
+          description: inv.invoice_number,
+          onSuccess: async (paymentId, orderId, signature) => {
+            setPayStep('processing');
+            try {
+              await verifyRazorpayPayment(orderId, paymentId, signature, inv.id);
+              queryClient.invalidateQueries({ queryKey: ['invoices'] });
+              toast({ title: 'Payment Successful!', description: 'Invoice has been paid.' });
+              setPayStep('success');
+              setTimeout(() => { setPayModal(null); setPayStep('confirm'); }, 1500);
+            } catch (e) {
+              toast({ title: 'Verification Failed', description: e instanceof Error ? e.message : 'Unknown error', variant: 'destructive' });
+              setPayStep('confirm');
+            }
+          },
+          onFailed: () => {
+            toast({ title: 'Payment Failed', description: 'Please try again.', variant: 'destructive' });
+          },
+        }
+      );
+    } catch (e) {
+      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Could not start payment. Is Razorpay configured?', variant: 'destructive' });
+    }
+  };
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -122,8 +142,8 @@ const BillingPayments: React.FC = () => {
 
   const kpis = [
     { label: 'Avg Payment Time', value: 12, suffix: ' days', icon: Clock },
-    { label: 'Outstanding Revenue', value: totalOutstanding, prefix: '$', icon: AlertTriangle },
-    { label: 'Total Collected', value: totalCollected, prefix: '$', icon: DollarSign },
+    { label: 'Outstanding Revenue', value: totalOutstanding, prefix: '₹', icon: AlertTriangle },
+    { label: 'Total Collected', value: totalCollected, prefix: '₹', icon: DollarSign },
   ];
 
   if (isLoading) {
@@ -189,7 +209,7 @@ const BillingPayments: React.FC = () => {
                   <motion.tr key={inv.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
                     <td className="px-4 py-3 font-mono text-xs">{inv.invoice_number}</td>
                     <td className="px-4 py-3 font-medium text-foreground">{inv.patients?.full_name || '—'}</td>
-                    <td className="px-4 py-3 font-semibold text-foreground">${inv.total_amount.toLocaleString()}</td>
+                    <td className="px-4 py-3 font-semibold text-foreground">₹{inv.total_amount.toLocaleString()}</td>
                     <td className="px-4 py-3 text-muted-foreground">{new Date(inv.due_date).toLocaleDateString()}</td>
                     <td className="px-4 py-3"><span className={`status-badge ${statusClass(inv.payment_status)}`}>{statusLabel(inv.payment_status)}</span></td>
                     <td className="px-4 py-3 flex gap-2">
@@ -203,30 +223,39 @@ const BillingPayments: React.FC = () => {
           </div>
         </div>
 
-        {/* Pay Modal */}
+        {/* Pay Modal (Razorpay) */}
         <AnimatePresence>
           {payModal && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm" onClick={() => setPayModal(null)}>
-              <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30" onClick={payStep !== 'processing' ? () => setPayModal(null) : undefined}>
+              <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-foreground">Process Payment</h3>
-                  <button onClick={() => setPayModal(null)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>
+                  <h3 className="text-lg font-bold text-foreground">Pay with Razorpay</h3>
+                  {payStep !== 'processing' && <button onClick={() => setPayModal(null)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>}
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">Invoice {payModal.invoice_number}</p>
-                <p className="text-lg font-bold text-foreground mb-4">${payModal.total_amount.toLocaleString()}</p>
-                <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm mb-4">
-                  <option>Credit Card</option>
-                  <option>Debit Card</option>
-                  <option>Bank Transfer</option>
-                  <option>Insurance</option>
-                </select>
-                <button
-                  disabled={payMutation.isPending}
-                  onClick={() => payMutation.mutate({ invoiceId: payModal.id, amount: payModal.total_amount })}
-                  className="w-full py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all hover-lift disabled:opacity-50"
-                >
-                  {payMutation.isPending ? 'Processing…' : 'Confirm Payment'}
-                </button>
+                <p className="text-lg font-bold text-foreground mb-4">₹{payModal.total_amount.toLocaleString()}</p>
+                {payStep === 'confirm' && (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-4">Pay securely via UPI, cards, net banking</p>
+                    <button
+                      onClick={() => handlePayWithRazorpay(payModal)}
+                      className="w-full py-2.5 rounded-lg bg-[#2B84EA] text-white text-sm font-medium hover:bg-[#1A6FD1] transition-all flex items-center justify-center gap-2"
+                    >
+                      <Shield className="w-4 h-4" /><CreditCard className="w-4 h-4" /> Pay ₹{payModal.total_amount.toLocaleString()}
+                    </button>
+                  </>
+                )}
+                {payStep === 'processing' && (
+                  <div className="py-6 text-center">
+                    <Loader2 className="w-10 h-10 animate-spin text-[#2B84EA] mx-auto mb-2" />
+                    <p className="text-sm font-medium text-foreground">Verifying payment…</p>
+                  </div>
+                )}
+                {payStep === 'success' && (
+                  <div className="py-4 text-center">
+                    <p className="text-sm font-semibold text-emerald-600">Payment successful!</p>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
           )}
@@ -235,8 +264,8 @@ const BillingPayments: React.FC = () => {
         {/* Generate Invoice Modal */}
         <AnimatePresence>
           {showGenerateModal && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm" onClick={() => setShowGenerateModal(false)}>
-              <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30" onClick={() => setShowGenerateModal(false)}>
+              <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-foreground">Generate Itemized Invoice</h3>
                   <button onClick={() => setShowGenerateModal(false)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>

@@ -1,4 +1,4 @@
-import { api } from '@/lib/api';
+import { api, API_BASE } from '@/lib/api';
 
 // ── Claims ──────────────────────────────────────────────
 
@@ -107,6 +107,70 @@ export async function fetchPayments() {
   return api<DbPayment[]>('/api/payments');
 }
 
+// ── Razorpay ─────────────────────────────────────────────
+
+export interface RazorpayOrderResponse {
+  orderId: string;
+  keyId: string;
+  amount: number;
+  currency: string;
+}
+
+export async function getRazorpayConfig() {
+  return api<{ enabled: boolean }>('/api/razorpay/config');
+}
+
+export async function createRazorpayOrder(invoiceId: string | null, amount: number) {
+  const body: Record<string, unknown> = { amount };
+  if (invoiceId) body.invoice_id = invoiceId;
+  return api<RazorpayOrderResponse>('/api/razorpay/order', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function verifyRazorpayPayment(
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+  invoiceId: string
+) {
+  return api<{ success: boolean; payment: unknown }>('/api/razorpay/verify', {
+    method: 'POST',
+    body: JSON.stringify({
+      razorpay_order_id: razorpayOrderId,
+      razorpay_payment_id: razorpayPaymentId,
+      razorpay_signature: razorpaySignature,
+      invoice_id: invoiceId,
+    }),
+  });
+}
+
+export async function verifyRazorpayBooking(
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+  booking: {
+    patient_id: string;
+    doctor_id: string;
+    appointment_date: string;
+    reason?: string;
+    hospital_id?: string | null;
+    amount: number;
+    doctor_name?: string;
+  }
+) {
+  return api<{ success: boolean; appointment: unknown; invoice: unknown }>('/api/razorpay/verify-booking', {
+    method: 'POST',
+    body: JSON.stringify({
+      razorpay_order_id: razorpayOrderId,
+      razorpay_payment_id: razorpayPaymentId,
+      razorpay_signature: razorpaySignature,
+      ...booking,
+    }),
+  });
+}
+
 export async function makePayment(invoiceId: string, amount: number, paymentMethod: string) {
   return api<DbPayment>('/api/payments', {
     method: 'POST',
@@ -121,9 +185,40 @@ export async function makePayment(invoiceId: string, amount: number, paymentMeth
 
 // ── Patients ────────────────────────────────────────────
 
-export async function fetchPatientRecord(userId: string) {
-  const list = await api<any>('/api/patients/me');
-  return list ?? null;
+export async function fetchPatientRecord(_userId?: string) {
+  try {
+    const record = await api<any>('/api/patients/me');
+    return record?.id ? record : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function updatePatientProfile(updates: {
+  fullName?: string;
+  dob?: string;
+  gender?: string;
+  insuranceProvider?: string;
+  policyNumber?: string;
+  hospitalId?: string;
+  photoIdPath?: string;
+  insuranceCardPath?: string;
+  validationReport?: Record<string, unknown>;
+}) {
+  return api<any>('/api/patients/me', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      full_name: updates.fullName ?? null,
+      dob: updates.dob ?? null,
+      gender: updates.gender ?? null,
+      insurance_provider: updates.insuranceProvider ?? null,
+      policy_number: updates.policyNumber ?? null,
+      hospital_id: updates.hospitalId ?? null,
+      photo_id_path: updates.photoIdPath ?? null,
+      insurance_card_path: updates.insuranceCardPath ?? null,
+      validation_report: updates.validationReport ?? null,
+    }),
+  });
 }
 
 export async function createPatientRecord(record: {
@@ -133,6 +228,9 @@ export async function createPatientRecord(record: {
   insuranceProvider: string;
   policyNumber: string;
   hospitalId?: string;
+  photoIdPath?: string;
+  insuranceCardPath?: string;
+  validationReport?: Record<string, unknown>;
 }) {
   return api<any>('/api/patients', {
     method: 'POST',
@@ -143,7 +241,87 @@ export async function createPatientRecord(record: {
       insurance_provider: record.insuranceProvider,
       policy_number: record.policyNumber,
       hospital_id: record.hospitalId || null,
+      photo_id_path: record.photoIdPath || null,
+      insurance_card_path: record.insuranceCardPath || null,
+      validation_report: record.validationReport || null,
     }),
+  });
+}
+
+export async function fetchPendingPatients() {
+  return api<any[]>('/api/patients/pending');
+}
+
+export async function fetchPatientById(id: string) {
+  return api<any>(`/api/patients/${id}`);
+}
+
+export async function approvePatient(id: string) {
+  return api<any>(`/api/patients/${id}/approve`, { method: 'POST' });
+}
+
+export async function rejectPatient(id: string) {
+  return api<any>(`/api/patients/${id}/reject`, { method: 'POST' });
+}
+
+/** Fetch document with auth and return object URL for use in img src. Caller must revoke the URL when done. */
+export async function fetchDocumentAsObjectUrl(filename: string): Promise<string> {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE}/api/patients/documents/serve/${encodeURIComponent(filename)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to load document');
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+export function getDocumentUrl(filename: string): string {
+  return `${API_BASE}/api/patients/documents/serve/${encodeURIComponent(filename)}`;
+}
+
+export async function uploadPatientDocument(file: File, type: 'photo_id' | 'insurance_card') {
+  const token = localStorage.getItem('token');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', type);
+  const res = await fetch(`${API_BASE}/api/patients/documents/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    let errMsg = `Upload failed (${res.status})`;
+    try {
+      const text = await res.text();
+      if (text) {
+        try {
+          const err = JSON.parse(text) as { error?: string };
+          errMsg = err.error || errMsg;
+        } catch {
+          errMsg = text;
+        }
+      }
+    } catch {
+      /* use default errMsg */
+    }
+    throw new Error(errMsg);
+  }
+  return res.json() as Promise<{ path: string; filename: string }>;
+}
+
+export async function validateOnboarding(formData: Record<string, string>, hasPhotoId: boolean, hasInsuranceCard: boolean) {
+  return api<{
+    documentVerification: string;
+    documentVerificationReason: string;
+    insuranceEligibility: string;
+    insuranceEligibilityReason: string;
+    riskAssessment: string;
+    riskAssessmentReason: string;
+    confidence: number;
+    allPassed: boolean;
+  }>('/api/patients/onboarding/validate', {
+    method: 'POST',
+    body: JSON.stringify({ formData, hasPhotoId, hasInsuranceCard }),
   });
 }
 

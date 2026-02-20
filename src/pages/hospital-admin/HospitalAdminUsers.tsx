@@ -134,7 +134,11 @@ const HospitalAdminUsers: React.FC = () => {
     if (!editUser) return;
     setUpdating(true);
     try {
-      await updateUser(editUser.user_id, { name: editForm.name, specialization: editForm.specialization || null });
+      await updateUser(editUser.user_id, {
+        name: editForm.name,
+        specialization: editForm.specialization || null,
+        hospital_id: user?.hospitalId,
+      });
       toast({ title: 'Staff updated', description: `${editForm.name} has been updated.` });
       setEditUser(null);
       fetchUsers();
@@ -325,9 +329,9 @@ const HospitalAdminUsers: React.FC = () => {
         <AnimatePresence>
           {editUser && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm" onClick={() => setEditUser(null)}>
+              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30" onClick={() => setEditUser(null)}>
               <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
-                className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+                className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-foreground">Edit Staff</h3>
                   <button onClick={() => setEditUser(null)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>
@@ -385,9 +389,9 @@ const HospitalAdminUsers: React.FC = () => {
         <AnimatePresence>
           {deleteUser && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm" onClick={() => setDeleteUser(null)}>
+              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30" onClick={() => setDeleteUser(null)}>
               <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
-                className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
+                className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-destructive">Delete Staff</h3>
                   <button onClick={() => setDeleteUser(null)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>

@@ -1,7 +1,8 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import {
-  LayoutDashboard, Users, FileText, CreditCard, Bot, BarChart3,
+  LayoutDashboard, Users, FileText, FileCheck, CreditCard, Bot, BarChart3,
   Settings, ChevronLeft, ChevronRight, Activity, Brain, AlertTriangle,
   Receipt, HelpCircle, UserCog, User, UserPlus, Calendar, CalendarPlus, ScrollText
 } from 'lucide-react';
@@ -10,7 +11,7 @@ import { sidebarConfig } from '@/config/sidebarConfig';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const iconMap: Record<string, React.ElementType> = {
-  LayoutDashboard, Users, FileText, CreditCard, Bot, BarChart3,
+  LayoutDashboard, Users, FileText, FileCheck, CreditCard, Bot, BarChart3,
   Settings, Activity, Brain, AlertTriangle, Receipt, HelpCircle, UserCog, User, UserPlus,
   Calendar, CalendarPlus, ScrollText,
 };
@@ -27,19 +28,23 @@ const AppSidebar: React.FC<Props> = ({ collapsed, onToggle }) => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 h-screen sidebar-gradient border-r border-sidebar-border transition-all duration-300 ease-in-out flex flex-col ${
-        collapsed ? 'w-[68px]' : 'w-[250px]'
+      className={`fixed left-0 top-0 z-40 h-screen sidebar-glass transition-all duration-300 ease-in-out flex flex-col ${
+        collapsed ? 'w-[72px]' : 'w-[260px]'
       }`}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border/50">
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg gradient-primary shadow-md">
+      <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border/40">
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary shadow-lg">
           <Activity className="w-5 h-5 text-primary-foreground" />
         </div>
         {!collapsed && (
-          <span className="text-lg font-bold text-sidebar-accent-foreground tracking-tight">
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-lg font-bold text-sidebar-accent-foreground tracking-tight font-heading"
+          >
             MediBots
-          </span>
+          </motion.span>
         )}
       </div>
 
@@ -55,7 +60,7 @@ const AppSidebar: React.FC<Props> = ({ collapsed, onToggle }) => {
               to={item.path}
               className={`sidebar-item group ${isActive ? 'sidebar-item-active' : 'sidebar-item-inactive'}`}
             >
-              <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${isActive ? 'text-sidebar-primary' : 'group-hover:text-sidebar-primary'}`} />
+              <Icon className={`sidebar-icon w-5 h-5 flex-shrink-0 transition-all duration-300 ${isActive ? 'text-sidebar-primary' : 'group-hover:text-sidebar-primary'}`} />
               {!collapsed && <span className="truncate">{item.title}</span>}
             </NavLink>
           );
@@ -76,9 +81,11 @@ const AppSidebar: React.FC<Props> = ({ collapsed, onToggle }) => {
       </nav>
 
       {/* Collapse toggle */}
-      <div className="px-3 py-4 border-t border-sidebar-border/50">
+      <div className="px-3 py-4 border-t border-sidebar-border/40">
         <button onClick={onToggle} className="sidebar-item sidebar-item-inactive w-full justify-center">
-          {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          <motion.span whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </motion.span>
           {!collapsed && <span>Collapse</span>}
         </button>
       </div>

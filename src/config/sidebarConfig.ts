@@ -12,6 +12,7 @@ export const sidebarConfig: Record<UserRole, SidebarItem[]> = {
   [UserRole.HOSPITAL_ADMIN]: [
     { title: 'Dashboard', path: '/hospital-admin/dashboard', icon: 'LayoutDashboard' },
     { title: 'Staff Management', path: '/hospital-admin/users', icon: 'UserCog' },
+    { title: 'Patient Approvals', path: '/hospital-admin/patient-approvals', icon: 'FileCheck' },
     { title: 'Patients', path: '/patients', icon: 'Users' },
     { title: 'Claims', path: '/claims', icon: 'FileText' },
     { title: 'Billing & Payments', path: '/billing', icon: 'CreditCard' },

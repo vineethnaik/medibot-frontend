@@ -26,7 +26,7 @@ const DashboardLayout: React.FC = () => {
   return (
     <div className="min-h-screen layout-bg">
       <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <div className={`transition-all duration-300 ease-in-out ${collapsed ? 'ml-[68px]' : 'ml-[250px]'}`}>
+        <div className={`transition-all duration-300 ease-in-out ${collapsed ? 'ml-[72px]' : 'ml-[260px]'}`}>
         <TopNavbar />
         <main className="relative z-10 p-6">
           <AnimatePresence mode="wait">

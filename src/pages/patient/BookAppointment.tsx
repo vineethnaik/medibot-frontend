@@ -3,15 +3,17 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { Loader2, CalendarPlus, Stethoscope, DollarSign, CreditCard, X, CheckCircle, UserPlus, Shield, ArrowRight } from 'lucide-react';
+import { Loader2, CalendarPlus, Stethoscope, DollarSign, CreditCard, X, CheckCircle, UserPlus, Shield } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import { fetchPatientRecord } from '@/services/dataService';
+import { createRazorpayOrder, verifyRazorpayBooking } from '@/services/dataService';
+import { openRazorpayCheckout } from '@/lib/razorpay';
 
 const CONSULTATION_FEE = 150; // Default consultation fee
 
-type RazorpayStep = 'choose' | 'details' | 'otp' | 'processing' | 'success';
+type PayModalStep = 'confirm' | 'processing' | 'success';
 
 const BookAppointment: React.FC = () => {
   const { user } = useAuth();
@@ -22,13 +24,7 @@ const BookAppointment: React.FC = () => {
   const [reason, setReason] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [pendingAppointment, setPendingAppointment] = useState<any>(null);
-  const [paymentMethod, setPaymentMethod] = useState('Credit Card');
-  const [rzpStep, setRzpStep] = useState<RazorpayStep>('choose');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvv, setCardCvv] = useState('');
-  const [upiId, setUpiId] = useState('');
-  const [otp, setOtp] = useState('');
+  const [payStep, setPayStep] = useState<PayModalStep>('confirm');
 
   const { data: patient, isLoading: patientLoading } = useQuery({
     queryKey: ['my-patient-record', user?.id],
@@ -62,7 +58,6 @@ const BookAppointment: React.FC = () => {
 
   const selectedDoctor = doctors.find(d => d.user_id === doctorId);
 
-  // Step 1: Click "Book" → show payment modal (or prompt to complete profile)
   const handleBookClick = () => {
     if (!doctorId || !date) return;
     if (!patient) {
@@ -70,86 +65,62 @@ const BookAppointment: React.FC = () => {
       return;
     }
     setPendingAppointment({ doctorId, date, reason });
-    setRzpStep('choose');
-    setCardNumber(''); setCardExpiry(''); setCardCvv(''); setUpiId(''); setOtp('');
+    setPayStep('confirm');
     setShowPayModal(true);
   };
 
   const closePayModal = () => {
-    setShowPayModal(false);
-    setPendingAppointment(null);
-    setRzpStep('choose');
+    if (payStep !== 'processing') {
+      setShowPayModal(false);
+      setPendingAppointment(null);
+      setPayStep('confirm');
+    }
   };
 
-  const canProceedRzp = () => {
-    if (paymentMethod === 'UPI') return upiId.includes('@');
-    return cardNumber.length >= 16 && cardExpiry.length >= 4 && cardCvv.length >= 3;
-  };
-
-  const handleRazorpayPay = () => setRzpStep('otp');
-  const handleRazorpayVerifyOtp = () => {
-    setRzpStep('processing');
-    setTimeout(() => payAndBookMutation.mutate(), 1500);
-  };
-
-  // Step 2: Pay consultation fee → create appointment with fee_paid=true
-  const payAndBookMutation = useMutation({
-    mutationFn: async () => {
-      if (!patient) throw new Error('Patient record not found.');
-
-      const appointmentDate = new Date(pendingAppointment.date).toISOString();
-
-      const appt = await api<any>('/api/appointments', {
-        method: 'POST',
-        body: JSON.stringify({
-          patient_id: patient.id,
-          doctor_id: pendingAppointment.doctorId,
-          appointment_date: appointmentDate,
-          reason: pendingAppointment.reason,
-          status: 'PENDING',
-          hospital_id: patientHospitalId || null,
-          consultation_fee: CONSULTATION_FEE,
-          fee_paid: true,
-        }),
-      });
-
-      const invoice = await api<any>('/api/invoices/create', {
-        method: 'POST',
-        body: JSON.stringify({
-          patient_id: patient.id,
-          total_amount: CONSULTATION_FEE,
-          hospital_id: patientHospitalId || null,
-          payment_status: 'PAID',
-          line_items: [{
-            description: `Consultation Fee — Dr. ${selectedDoctor?.name || 'Doctor'}`,
-            amount: CONSULTATION_FEE,
-            item_type: 'CONSULTATION',
-          }],
-        }),
-      });
-
-      await api('/api/payments', {
-        method: 'POST',
-        body: JSON.stringify({
-          invoice_id: invoice.id,
-          amount_paid: CONSULTATION_FEE,
-          payment_method: paymentMethod,
-          transaction_id: `TXN-${Date.now()}`,
-        }),
-      });
-
-      return appt;
-    },
+  const verifyBookingMutation = useMutation({
+    mutationFn: (params: { paymentId: string; orderId: string; signature: string }) =>
+      verifyRazorpayBooking(params.orderId, params.paymentId, params.signature, {
+        patient_id: patient!.id,
+        doctor_id: pendingAppointment!.doctorId,
+        appointment_date: new Date(pendingAppointment!.date).toISOString(),
+        reason: pendingAppointment!.reason,
+        hospital_id: patientHospitalId || undefined,
+        amount: CONSULTATION_FEE,
+        doctor_name: selectedDoctor?.name,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-appointments'] });
       qc.invalidateQueries({ queryKey: ['my-invoices'] });
-      setRzpStep('success');
+      setPayStep('success');
     },
     onError: (e: Error) => {
       toast.error(e.message);
-      setRzpStep('details');
+      setPayStep('confirm');
     },
   });
+
+  const handlePayWithRazorpay = async () => {
+    if (!patient || !pendingAppointment) return;
+    try {
+      const order = await createRazorpayOrder(null, CONSULTATION_FEE);
+      openRazorpayCheckout(
+        { orderId: order.orderId, keyId: order.keyId, amount: order.amount, currency: order.currency },
+        {
+          name: 'MediBots Health',
+          description: `Consultation — Dr. ${selectedDoctor?.name || 'Doctor'}`,
+          onSuccess: (paymentId, orderId, signature) => {
+            setPayStep('processing');
+            verifyBookingMutation.mutate({ paymentId, orderId, signature });
+          },
+          onFailed: () => {
+            toast.error('Payment failed. Please try again.');
+          },
+        }
+      );
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Could not start payment. Is Razorpay configured?');
+    }
+  };
 
   const statusCls = (s: string) =>
     s === 'APPROVED' ? 'status-approved' : s === 'PENDING' ? 'status-pending' : s === 'COMPLETED' ? 'bg-primary/10 text-primary' : 'status-denied';
@@ -254,7 +225,7 @@ const BookAppointment: React.FC = () => {
                   <DollarSign className="w-4 h-4 text-primary" />
                   <span className="text-sm text-foreground font-medium">Consultation Fee</span>
                 </div>
-                <span className="text-lg font-bold text-foreground">${CONSULTATION_FEE}</span>
+                <span className="text-lg font-bold text-foreground">₹{CONSULTATION_FEE}</span>
               </div>
             )}
 
@@ -262,11 +233,11 @@ const BookAppointment: React.FC = () => {
               <span className="text-xs font-semibold text-primary uppercase tracking-wider">Step 4</span>
               <button
                 onClick={handleBookClick}
-                disabled={!doctorId || !date || payAndBookMutation.isPending}
+                disabled={!doctorId || !date || verifyBookingMutation.isPending}
                 className="mt-2 px-5 py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center gap-2"
               >
                 <CreditCard className="w-4 h-4" />
-                {payAndBookMutation.isPending ? 'Processing…' : doctorId && selectedDoctor ? `Book with Dr. ${selectedDoctor.name} — Pay $${CONSULTATION_FEE}` : `Pay $${CONSULTATION_FEE} & Book`}
+                {verifyBookingMutation.isPending ? 'Processing…' : doctorId && selectedDoctor ? `Book with Dr. ${selectedDoctor.name} — Pay ₹${CONSULTATION_FEE}` : `Pay ₹${CONSULTATION_FEE} & Book`}
               </button>
             </div>
           </motion.div>
@@ -290,7 +261,7 @@ const BookAppointment: React.FC = () => {
                       <td className="px-4 py-3 text-muted-foreground">{a.reason || '—'}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">${a.consultation_fee || 0}</span>
+                          <span className="text-xs text-muted-foreground">₹{a.consultation_fee || 0}</span>
                           {feePaidBadge(!!a.fee_paid)}
                         </div>
                       </td>
@@ -304,19 +275,18 @@ const BookAppointment: React.FC = () => {
         </motion.div>
       </div>
 
-      {/* Dummy Razorpay-style Payment Modal */}
+      {/* Razorpay Payment Modal */}
       <AnimatePresence>
         {showPayModal && pendingAppointment && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={rzpStep !== 'processing' ? closePayModal : undefined}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={payStep !== 'processing' ? closePayModal : undefined}>
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }} className="bg-white dark:bg-card rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
 
               <div className="bg-[#2B84EA] px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Shield className="w-5 h-5 text-white" />
                   <span className="text-white font-bold text-lg">Razorpay</span>
-                  <span className="text-white/60 text-xs ml-1">DEMO</span>
                 </div>
-                {rzpStep !== 'processing' && (
+                {payStep !== 'processing' && (
                   <button onClick={closePayModal} className="p-1 rounded-lg hover:bg-white/10"><X className="w-5 h-5 text-white" /></button>
                 )}
               </div>
@@ -330,107 +300,29 @@ const BookAppointment: React.FC = () => {
               </div>
 
               <div className="p-6">
-                {rzpStep === 'choose' && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
-                    <p className="text-sm font-semibold text-foreground mb-3">Select Payment Method</p>
-                    {['Credit Card', 'Debit Card', 'UPI', 'Net Banking'].map(method => (
-                      <button key={method} onClick={() => { setPaymentMethod(method); setRzpStep('details'); }}
-                        className="w-full flex items-center justify-between p-3.5 rounded-xl border border-border hover:border-[#2B84EA]/40 transition-all">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-muted/40 flex items-center justify-center text-sm">
-                            {method === 'Credit Card' ? '💳' : method === 'Debit Card' ? '🏧' : method === 'UPI' ? '📱' : '🏦'}
-                          </div>
-                          <span className="text-sm font-medium text-foreground">{method}</span>
-                        </div>
-                        <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-
-                {rzpStep === 'details' && (
-                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
-                    <button onClick={() => setRzpStep('choose')} className="text-xs text-[#2B84EA] hover:underline mb-1">← Change method</button>
-                    <p className="text-sm font-semibold text-foreground">{paymentMethod} Details</p>
-                    {paymentMethod === 'UPI' ? (
-                      <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1">UPI ID</label>
-                        <input type="text" placeholder="yourname@upi" value={upiId} onChange={e => setUpiId(e.target.value)}
-                          className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30" />
-                      </div>
-                    ) : paymentMethod === 'Net Banking' ? (
-                      <div>
-                        <label className="block text-xs font-medium text-muted-foreground mb-1">Select Bank</label>
-                        <select className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30">
-                          <option value="">Choose your bank</option>
-                          <option>State Bank of India</option>
-                          <option>HDFC Bank</option>
-                          <option>ICICI Bank</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="block text-xs font-medium text-muted-foreground mb-1">Card Number</label>
-                          <input type="text" placeholder="4111 1111 1111 1111" maxLength={19}
-                            value={cardNumber} onChange={e => setCardNumber(e.target.value.replace(/\D/g, '').slice(0, 16))}
-                            className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1">Expiry</label>
-                            <input type="text" placeholder="MM/YY" maxLength={5}
-                              value={cardExpiry} onChange={e => setCardExpiry(e.target.value.replace(/[^\d/]/g, '').slice(0, 5))}
-                              className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1">CVV</label>
-                            <input type="password" placeholder="•••" maxLength={4}
-                              value={cardCvv} onChange={e => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                              className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30" />
-                          </div>
-                        </div>
-                      </>
-                    )}
+                {payStep === 'confirm' && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    <p className="text-sm text-muted-foreground">Pay securely with Razorpay — UPI, cards, net banking</p>
                     <button
-                      disabled={!canProceedRzp() && paymentMethod !== 'Net Banking'}
-                      onClick={handleRazorpayPay}
-                      className="w-full py-3 rounded-xl bg-[#2B84EA] text-white text-sm font-semibold hover:bg-[#1A6FD1] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={handlePayWithRazorpay}
+                      disabled={verifyBookingMutation.isPending}
+                      className="w-full py-3 rounded-xl bg-[#2B84EA] text-white text-sm font-semibold hover:bg-[#1A6FD1] transition-all disabled:opacity-70 flex items-center justify-center gap-2"
                     >
-                      Pay ₹{CONSULTATION_FEE}
+                      <CreditCard className="w-4 h-4" />
+                      Pay ₹{CONSULTATION_FEE} & Book
                     </button>
                   </motion.div>
                 )}
 
-                {rzpStep === 'otp' && (
-                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4 text-center">
-                    <div className="w-16 h-16 mx-auto rounded-full bg-[#2B84EA]/10 flex items-center justify-center">
-                      <Shield className="w-8 h-8 text-[#2B84EA]" />
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">OTP Verification</p>
-                    <p className="text-xs text-muted-foreground">Enter any 6 digits for demo</p>
-                    <input type="text" placeholder="Enter 6-digit OTP" maxLength={6}
-                      value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground text-center text-lg font-mono tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-[#2B84EA]/30" />
-                    <button
-                      disabled={otp.length < 6}
-                      onClick={handleRazorpayVerifyOtp}
-                      className="w-full py-3 rounded-xl bg-[#2B84EA] text-white text-sm font-semibold hover:bg-[#1A6FD1] transition-all disabled:opacity-40"
-                    >
-                      Verify & Pay
-                    </button>
-                  </motion.div>
-                )}
-
-                {rzpStep === 'processing' && (
+                {payStep === 'processing' && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-8 text-center space-y-4">
                     <Loader2 className="w-12 h-12 animate-spin text-[#2B84EA] mx-auto" />
-                    <p className="text-sm font-semibold text-foreground">Processing Payment…</p>
-                    <p className="text-xs text-muted-foreground">Please do not close this window</p>
+                    <p className="text-sm font-semibold text-foreground">Confirming your booking…</p>
+                    <p className="text-xs text-muted-foreground">Please wait</p>
                   </motion.div>
                 )}
 
-                {rzpStep === 'success' && (
+                {payStep === 'success' && (
                   <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="py-6 text-center space-y-4">
                     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}
                       className="w-20 h-20 mx-auto rounded-full bg-emerald-500/10 flex items-center justify-center">
@@ -438,7 +330,6 @@ const BookAppointment: React.FC = () => {
                     </motion.div>
                     <p className="text-lg font-bold text-foreground">Payment Successful!</p>
                     <p className="text-sm text-muted-foreground">Appointment booked with Dr. {selectedDoctor?.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">TXN-{Date.now()}</p>
                     <button
                       onClick={() => { toast.success('Appointment booked!'); closePayModal(); setDoctorId(''); setDate(''); setReason(''); }}
                       className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 transition-all"
@@ -451,7 +342,7 @@ const BookAppointment: React.FC = () => {
 
               <div className="px-6 py-3 bg-[#F4F7FA] dark:bg-muted/10 border-t border-border/30 flex items-center justify-center gap-2">
                 <Shield className="w-3 h-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">Secured by Razorpay | 256-bit SSL (Demo)</span>
+                <span className="text-[10px] text-muted-foreground">Secured by Razorpay | 256-bit SSL</span>
               </div>
             </motion.div>
           </motion.div>

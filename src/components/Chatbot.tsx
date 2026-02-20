@@ -31,26 +31,46 @@ export default function Chatbot() {
     <>
       <AnimatePresence>
         {!open && (
-          <motion.button
-            initial={{ scale: 0 }}
-            animate={{
-              scale: [1, 1.05, 1],
-            }}
-            transition={{
-              scale: {
-                repeat: Infinity,
-                duration: 2,
-                ease: 'easeInOut',
-              },
-            }}
-            exit={{ scale: 0 }}
-            onClick={() => setOpen(true)}
-            className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center overflow-hidden ring-4 ring-primary/20 hover:ring-primary/40 hover:scale-110 transition-all duration-300"
+          <motion.div
+            className="fixed bottom-6 right-6 z-50"
+            style={{ perspective: 1200 }}
           >
+            <motion.button
+              initial={{ scale: 0 }}
+              animate={{
+                scale: [1, 1.06, 1],
+                y: [0, -8, 0],
+                rotateY: [0, 8, -8, 0],
+                boxShadow: [
+                  '0 12px 28px -6px hsl(var(--primary) / 0.4), 0 6px 16px -8px hsl(var(--primary) / 0.25), 0 0 0 1px hsl(var(--primary) / 0.15), inset 0 2px 0 0 hsl(0 0% 100% / 0.25), inset 0 -2px 8px -2px hsl(0 0 0 / 0.2)',
+                  '0 20px 40px -8px hsl(var(--primary) / 0.5), 0 10px 24px -10px hsl(var(--primary) / 0.3), 0 0 0 1px hsl(var(--primary) / 0.2), inset 0 2px 0 0 hsl(0 0% 100% / 0.3), inset 0 -2px 8px -2px hsl(0 0 0 / 0.25)',
+                  '0 12px 28px -6px hsl(var(--primary) / 0.4), 0 6px 16px -8px hsl(var(--primary) / 0.25), 0 0 0 1px hsl(var(--primary) / 0.15), inset 0 2px 0 0 hsl(0 0% 100% / 0.25), inset 0 -2px 8px -2px hsl(0 0 0 / 0.2)',
+                ],
+              }}
+              transition={{
+                scale: { repeat: Infinity, duration: 2.2, ease: 'easeInOut' },
+                y: { repeat: Infinity, duration: 2.8, ease: 'easeInOut' },
+                rotateY: { repeat: Infinity, duration: 5, ease: 'easeInOut' },
+                boxShadow: { repeat: Infinity, duration: 2, ease: 'easeInOut' },
+              }}
+              exit={{ scale: 0 }}
+              whileHover={{
+                scale: 1.1,
+                y: -6,
+                rotateY: 12,
+                boxShadow: '0 24px 48px -12px hsl(var(--primary) / 0.5), 0 12px 28px -12px hsl(var(--primary) / 0.35), 0 0 0 1px hsl(var(--primary) / 0.2), inset 0 2px 0 0 hsl(0 0% 100% / 0.35)',
+                transition: { duration: 0.2 },
+              }}
+              whileTap={{ scale: 0.96, y: 0 }}
+              onClick={() => setOpen(true)}
+              className="w-16 h-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center overflow-hidden cursor-pointer"
+              style={{ transformStyle: 'preserve-3d' }}
+            >
             <motion.span
-              animate={{ rotate: [0, 3, -3, 0] }}
+              animate={{ rotate: [0, 5, -5, 0] }}
               transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut' }}
               className="relative w-full h-full flex items-center justify-center"
+              style={{ transformStyle: 'preserve-3d' }}
             >
               <img
                 src={CHATBOT_ICON_SRC}
@@ -66,6 +86,7 @@ export default function Chatbot() {
               <Bot className="w-7 h-7 hidden text-primary-foreground" aria-hidden />
             </motion.span>
           </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
 

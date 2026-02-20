@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
-import { Activity, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { useTheme } from '@/context/ThemeContext';
+import { Activity, Eye, EyeOff, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { AuthCinematicBackground } from '@/components/auth/AuthCinematicBackground';
 
 const Signup: React.FC = () => {
   const { signup } = useAuth();
+  const { isDark, toggle } = useTheme();
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -41,12 +45,19 @@ const Signup: React.FC = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 auth-bg">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-accent/5 blur-3xl" />
+      <AuthCinematicBackground />
+      <div className="absolute top-4 right-4 z-10">
+        <button onClick={toggle} className="p-2 rounded-xl text-muted-foreground hover:bg-muted/60 transition-all" aria-label="Toggle theme">
+          {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
       </div>
 
-      <div className="w-full max-w-md relative animate-fade-in">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+        className="w-full max-w-md relative z-10"
+      >
         <div className="flex items-center justify-center gap-3 mb-8">
           <div className="flex items-center justify-center w-12 h-12 rounded-xl gradient-primary shadow-lg">
             <Activity className="w-7 h-7 text-primary-foreground" />
@@ -57,7 +68,7 @@ const Signup: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border shadow-lg p-8">
+        <div className="bg-card/95 backdrop-blur-sm rounded-2xl border border-border shadow-xl p-8">
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold text-foreground">Patient Registration</h2>
             <p className="text-sm text-muted-foreground mt-1">Create your patient account to get started</p>
@@ -91,7 +102,7 @@ const Signup: React.FC = () => {
               </div>
             </div>
 
-            <button type="submit" disabled={loading} className="w-full py-3 rounded-lg gradient-primary text-primary-foreground font-semibold text-sm transition-all hover:opacity-90 disabled:opacity-50">
+            <button type="submit" disabled={loading} className="w-full py-3 rounded-xl gradient-primary text-primary-foreground font-semibold text-sm transition-all hover:shadow-lg hover:opacity-95 disabled:opacity-50 active:scale-[0.99]">
               {loading ? 'Creating account…' : 'Create Patient Account'}
             </button>
           </form>
@@ -101,7 +112,7 @@ const Signup: React.FC = () => {
             <Link to="/login" className="text-primary hover:underline font-medium">Sign in</Link>
           </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

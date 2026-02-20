@@ -4,6 +4,9 @@ import { useAuth } from '@/context/AuthContext';
 import { FileText, DollarSign, Clock, CheckCircle } from 'lucide-react';
 import AnimatedCounter from '@/components/layout/AnimatedCounter';
 import PageTransition from '@/components/layout/PageTransition';
+import PageHeader from '@/components/ui/PageHeader';
+import StatCard from '@/components/ui/StatCard';
+import EmptyState from '@/components/ui/EmptyState';
 import { useQuery } from '@tanstack/react-query';
 import { fetchPatientClaims, fetchPatientInvoices } from '@/services/dataService';
 import { Loader2 } from 'lucide-react';
@@ -47,23 +50,16 @@ const MyDashboard: React.FC = () => {
   return (
     <PageTransition>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Welcome, {user?.name}</h1>
-          <p className="text-muted-foreground text-sm mt-1">Your health dashboard overview</p>
-        </div>
+        <PageHeader title={`Welcome, ${user?.name}`} description="Your health dashboard overview" gradient />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {kpis.map((k, i) => (
-            <motion.div key={k.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="kpi-card">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{k.label}</span>
-                <div className="w-9 h-9 rounded-lg gradient-primary flex items-center justify-center shadow-sm">
-                  <k.icon className="w-4 h-4 text-primary-foreground" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-foreground">
-                <AnimatedCounter value={k.value} prefix={k.prefix} />
-              </p>
-            </motion.div>
+            <StatCard
+              key={k.label}
+              label={k.label}
+              value={<AnimatedCounter value={k.value} prefix={k.prefix} />}
+              icon={k.icon}
+              index={i}
+            />
           ))}
         </div>
 
@@ -71,7 +67,7 @@ const MyDashboard: React.FC = () => {
           <h3 className="text-sm font-semibold text-foreground mb-4">Recent Claims</h3>
           <div className="space-y-3">
             {claims.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No claims yet</p>
+              <EmptyState icon={FileText} title="No claims yet" description="Your claims will appear here once submitted." />
             ) : claims.slice(0, 3).map((c, i) => (
               <motion.div key={c.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 + i * 0.08 }} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 hover:bg-muted/30 transition-colors">
                 <div>

@@ -36,6 +36,7 @@ import ManageHospitals from "@/pages/super-admin/ManageHospitals";
 import SuperAdminUsers from "@/pages/super-admin/SuperAdminUsers";
 import HospitalAdminDashboard from "@/pages/hospital-admin/HospitalAdminDashboard";
 import HospitalAdminUsers from "@/pages/hospital-admin/HospitalAdminUsers";
+import HospitalAdminPatientApprovals from "@/pages/hospital-admin/HospitalAdminPatientApprovals";
 
 const queryClient = new QueryClient();
 
@@ -79,6 +80,11 @@ const App = () => (
                 <Route path="/hospital-admin/users" element={
                   <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
                     <HospitalAdminUsers />
+                  </ProtectedRoute>
+                } />
+                <Route path="/hospital-admin/patient-approvals" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <HospitalAdminPatientApprovals />
                   </ProtectedRoute>
                 } />
                 {/* Shared staff routes */}

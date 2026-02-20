@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { UserRole } from '@/types';
 import { Search, Brain, ArrowUpDown, Download, X, Loader2, Plus } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
+import PageHeader from '@/components/ui/PageHeader';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchClaims, manageClaim, createClaim, fetchCompletedAppointmentsForClaims, DbClaim } from '@/services/dataService';
 import { useToast } from '@/hooks/use-toast';
@@ -133,15 +134,12 @@ const ClaimsManagement: React.FC = () => {
   return (
     <PageTransition>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Claims Management</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              {isReadOnly ? 'View-only access to insurance claims' : 'Track and manage insurance claims'}
-              {claims.length === 0 && ' — No claims yet'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <PageHeader
+            title="Claims Management"
+            description={isReadOnly ? 'View-only access to insurance claims' : 'Track and manage insurance claims'}
+          />
+          <div className="flex items-center gap-2 -mt-2 sm:mt-0">
             {isReadOnly && (
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]">Read Only</span>
             )}
@@ -245,7 +243,7 @@ const ClaimsManagement: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30"
               onClick={() => setSelectedClaim(null)}
             >
               <motion.div
@@ -253,7 +251,7 @@ const ClaimsManagement: React.FC = () => {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97, y: 8 }}
                 transition={{ duration: 0.25 }}
-                className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-lg mx-4 p-6"
+                className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg mx-4 p-6"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
@@ -314,14 +312,14 @@ const ClaimsManagement: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30"
               onClick={() => setShowCreateModal(false)}
             >
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 16 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97 }}
-                className="bg-card/95 backdrop-blur-xl rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 p-6"
+                className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 p-6"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
