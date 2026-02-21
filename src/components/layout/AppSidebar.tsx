@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import {
   LayoutDashboard, Users, FileText, FileCheck, CreditCard, Bot, BarChart3,
   Settings, ChevronLeft, ChevronRight, Activity, Brain, AlertTriangle,
-  Receipt, HelpCircle, UserCog, User, UserPlus, Calendar, CalendarPlus, ScrollText
+  Receipt, HelpCircle, UserCog, User, UserPlus, Calendar, CalendarPlus, ScrollText,
+  Package, FlaskConical, CalendarClock, LayoutGrid, FileUp, PieChart, Building2, Stethoscope, IndianRupee
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { sidebarConfig } from '@/config/sidebarConfig';
@@ -13,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 const iconMap: Record<string, React.ElementType> = {
   LayoutDashboard, Users, FileText, FileCheck, CreditCard, Bot, BarChart3,
   Settings, Activity, Brain, AlertTriangle, Receipt, HelpCircle, UserCog, User, UserPlus,
-  Calendar, CalendarPlus, ScrollText,
+  Calendar, CalendarPlus, ScrollText, Package, FlaskConical, CalendarClock, LayoutGrid, FileUp, PieChart, Building2, Stethoscope, IndianRupee,
 };
 
 interface Props {
@@ -34,9 +35,7 @@ const AppSidebar: React.FC<Props> = ({ collapsed, onToggle }) => {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border/40">
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary shadow-lg">
-          <Activity className="w-5 h-5 text-primary-foreground" />
-        </div>
+        <img src="/logom.png" alt="MediBots" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
         {!collapsed && (
           <motion.span
             initial={{ opacity: 0 }}

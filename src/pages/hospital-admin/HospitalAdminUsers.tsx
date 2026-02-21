@@ -15,6 +15,7 @@ interface UserRow {
   email: string;
   role: UserRole;
   specialization: string | null;
+  specialization_tags: string | null;
   status: string;
   created_at: string;
 }
@@ -65,7 +66,7 @@ const HospitalAdminUsers: React.FC = () => {
 
   // Edit dialog
   const [editUser, setEditUser] = useState<UserRow | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', password: '', specialization: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', password: '', specialization: '', specialization_tags: '' });
   const [updating, setUpdating] = useState(false);
   const [showEditPw, setShowEditPw] = useState(false);
 
@@ -76,7 +77,7 @@ const HospitalAdminUsers: React.FC = () => {
   const fetchUsers = useCallback(async () => {
     if (!user?.hospitalId) return;
     setLoading(true);
-    const profiles = await api<{ id: string; user_id: string; name: string; email: string; specialization: string | null; status: string; created_at: string; role: string }[]>('/api/profiles');
+    const profiles = await api<{ id: string; user_id: string; name: string; email: string; specialization: string | null; specialization_tags: string | null; status: string; created_at: string; role: string }[]>('/api/profiles');
     const byHospital = profiles.filter((p: any) => p.hospital_id === user.hospitalId);
     setUsers(byHospital.map(p => ({
       id: p.id,
@@ -84,6 +85,7 @@ const HospitalAdminUsers: React.FC = () => {
       name: p.name,
       email: p.email,
       specialization: p.specialization || null,
+      specialization_tags: p.specialization_tags || null,
       status: p.status || 'ACTIVE',
       created_at: p.created_at,
       role: (p.role || UserRole.PATIENT) as UserRole,
@@ -125,7 +127,7 @@ const HospitalAdminUsers: React.FC = () => {
   // ── Edit ──
   const openEdit = (u: UserRow) => {
     setEditUser(u);
-    setEditForm({ name: u.name, email: u.email, password: '', specialization: u.specialization || '' });
+    setEditForm({ name: u.name, email: u.email, password: '', specialization: u.specialization || '', specialization_tags: u.specialization_tags || '' });
     setShowEditPw(false);
   };
 
@@ -137,6 +139,7 @@ const HospitalAdminUsers: React.FC = () => {
       await updateUser(editUser.user_id, {
         name: editForm.name,
         specialization: editForm.specialization || null,
+        specialization_tags: editForm.specialization_tags || null,
         hospital_id: user?.hospitalId,
       });
       toast({ title: 'Staff updated', description: `${editForm.name} has been updated.` });
@@ -290,13 +293,17 @@ const HospitalAdminUsers: React.FC = () => {
                         <span className={`status-badge ${roleBadgeColor[u.role]}`}>{u.role.replace(/_/g, ' ')}</span>
                       </td>
                       <td className="px-4 py-3">
-                        {u.specialization ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent/15 text-accent text-xs font-semibold border border-accent/20">
-                            🩺 {u.specialization}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {u.specialization && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent/15 text-accent text-xs font-semibold border border-accent/20">
+                              🩺 {u.specialization}
+                            </span>
+                          )}
+                          {u.specialization_tags && u.specialization_tags.split(',').map((tag, i) => (
+                            <span key={i} className="inline-flex px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{tag.trim()}</span>
+                          ))}
+                          {!u.specialization && !u.specialization_tags && <span className="text-muted-foreground text-xs">—</span>}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
@@ -363,13 +370,20 @@ const HospitalAdminUsers: React.FC = () => {
                     </div>
                   </div>
                   {editUser.role === UserRole.DOCTOR && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-1.5">Specialization</label>
-                      <select value={editForm.specialization} onChange={e => setEditForm(f => ({ ...f, specialization: e.target.value }))} className="input-field">
-                        <option value="">None</option>
-                        {DOCTOR_SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1.5">Primary Specialization</label>
+                        <select value={editForm.specialization} onChange={e => setEditForm(f => ({ ...f, specialization: e.target.value }))} className="input-field">
+                          <option value="">None</option>
+                          {DOCTOR_SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1.5">Specialization Tags <span className="text-muted-foreground font-normal">(comma-separated)</span></label>
+                        <input type="text" value={editForm.specialization_tags} onChange={e => setEditForm(f => ({ ...f, specialization_tags: e.target.value }))} className="input-field" placeholder="e.g. Cardiology, General Medicine" />
+                        <p className="text-xs text-muted-foreground mt-1">Add multiple specializations or sub-specialties</p>
+                      </div>
+                    </>
                   )}
                   <div className="flex gap-2 pt-2">
                     <button type="button" onClick={() => setEditUser(null)} className="flex-1 py-2.5 rounded-lg border border-border text-foreground text-sm font-medium hover:bg-muted transition-colors">

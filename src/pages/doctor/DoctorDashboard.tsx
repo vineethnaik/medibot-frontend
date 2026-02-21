@@ -52,6 +52,36 @@ const DoctorDashboard: React.FC = () => {
           <p className="text-muted-foreground text-sm mt-1">Your appointments overview</p>
         </div>
 
+        {/* Today's Schedule */}
+        {todayAppts.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="kpi-card border-2 border-primary/20 bg-primary/5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Today&apos;s Schedule ({todayAppts.length})</h3>
+              </div>
+              <Link to="/doctor-appointments" className="text-xs text-primary hover:underline font-medium">View all</Link>
+            </div>
+            <div className="space-y-2">
+              {todayAppts.slice(0, 4).map((a: any) => (
+                <Link key={a.id} to="/doctor-appointments" className="flex items-center justify-between p-2.5 rounded-lg bg-background/60 hover:bg-muted/30 transition-colors block">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
+                      {getPatientName(a).charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{getPatientName(a)}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(appointmentDate(a)).toLocaleTimeString()}{a.reason ? ` — ${a.reason}` : ''}</p>
+                    </div>
+                  </div>
+                  <span className={`status-badge ${statusCls(a.status)}`}>{a.status}</span>
+                </Link>
+              ))}
+              {todayAppts.length > 4 && <p className="text-xs text-muted-foreground pt-1">+{todayAppts.length - 4} more today</p>}
+            </div>
+          </motion.div>
+        )}
+
         {pending > 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="kpi-card border-2 border-primary/30 bg-primary/5">
             <div className="flex items-center justify-between flex-wrap gap-3">

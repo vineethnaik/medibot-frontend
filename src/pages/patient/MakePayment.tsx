@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import PageTransition from '@/components/layout/PageTransition';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchPatientInvoices, fetchInvoiceItems, createRazorpayOrder, verifyRazorpayPayment } from '@/services/dataService';
+import { fetchPatientInvoices, fetchInvoiceItems, createRazorpayOrder, verifyRazorpayPayment, predictInvoiceWithInsights, DbInvoice } from '@/services/dataService';
 import { openRazorpayCheckout } from '@/lib/razorpay';
-import { Loader2, X, CreditCard, DollarSign, CheckCircle, ChevronDown, ChevronUp, Shield } from 'lucide-react';
+import { Loader2, X, CreditCard, IndianRupee, CheckCircle, ChevronDown, ChevronUp, Shield, Brain } from 'lucide-react';
 import { toast } from 'sonner';
+import { PredictCard } from '@/components/ai';
 
 type PayModalStep = 'confirm' | 'processing' | 'success';
 
@@ -16,6 +17,14 @@ const MakePayment: React.FC = () => {
   const [payModal, setPayModal] = useState<DbInvoice | null>(null);
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [payStep, setPayStep] = useState<PayModalStep>('confirm');
+  const [predictingInvoice, setPredictingInvoice] = useState<string | null>(null);
+  const [invoicePrediction, setInvoicePrediction] = useState<{
+    invoiceId: string;
+    score: number;
+    secondaryScore: number;
+    insights: string;
+    historicalStats?: Record<string, unknown>;
+  } | null>(null);
 
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['my-invoices', user?.id],
@@ -83,6 +92,45 @@ const MakePayment: React.FC = () => {
     }
   };
 
+  const handlePredictInvoice = async (inv: DbInvoice) => {
+    setPredictingInvoice(inv.id);
+    setInvoicePrediction(prev => prev?.invoiceId === inv.id ? prev : null);
+    try {
+      const features: Record<string, unknown> = {
+        total_amount: inv.total_amount,
+        days_to_payment: inv.days_to_payment ?? 0,
+        payer_type: inv.payer_type ?? 'SELF',
+        invoice_category: inv.invoice_category ?? 'CONSULTATION',
+        reminder_count: inv.reminder_count ?? 0,
+        installment_plan: inv.installment_plan ?? false,
+        historical_avg_payment_delay: inv.historical_avg_payment_delay ?? 14,
+        patient_age: inv.patient_age ?? 40,
+        patient_gender: inv.patient_gender ?? 'MALE',
+        previous_late_payments: inv.previous_late_payments ?? 0,
+        payment_status: inv.payment_status ?? 'UNPAID',
+      };
+      const res = await predictInvoiceWithInsights(features);
+      const onTimePct = res.on_time_rate_pct ?? (res.prediction === 1 ? (1 - res.probability) * 100 : res.probability * 100);
+      const delayPct = res.delay_rate_pct ?? (100 - onTimePct);
+      setInvoicePrediction({
+        invoiceId: inv.id,
+        score: Math.round(onTimePct),
+        secondaryScore: Math.round(delayPct),
+        insights: res.insights || 'Unable to load insights.',
+        historicalStats: res.historical_stats,
+      });
+    } catch {
+      setInvoicePrediction({
+        invoiceId: inv.id,
+        score: 50,
+        secondaryScore: 50,
+        insights: 'Prediction unavailable. Please try again.',
+      });
+    } finally {
+      setPredictingInvoice(null);
+    }
+  };
+
   const itemTypeIcon = (type: string) => {
     switch (type) {
       case 'CONSULTATION': return '🩺';
@@ -114,7 +162,7 @@ const MakePayment: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Outstanding Balance</span>
               <div className="w-9 h-9 rounded-lg gradient-primary flex items-center justify-center shadow-sm">
-                <DollarSign className="w-4 h-4 text-primary-foreground" />
+                <IndianRupee className="w-4 h-4 text-primary-foreground" />
               </div>
             </div>
             <p className="text-2xl font-bold text-foreground">₹{totalOutstanding.toLocaleString()}</p>
@@ -163,7 +211,15 @@ const MakePayment: React.FC = () => {
                         <p className="text-xs text-muted-foreground">Due: {new Date(inv.due_date).toLocaleDateString()}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handlePredictInvoice(inv); }}
+                        disabled={predictingInvoice === inv.id}
+                        className="px-3 py-2 rounded-lg border border-primary text-primary text-xs font-medium hover:bg-primary/10 transition-all flex items-center gap-1.5"
+                      >
+                        {predictingInvoice === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+                        Predict
+                      </button>
                       <span className="text-lg font-bold text-foreground">₹{inv.total_amount.toLocaleString()}</span>
                       <button
                         onClick={() => openRazorpay(inv)}
@@ -173,6 +229,20 @@ const MakePayment: React.FC = () => {
                       </button>
                     </div>
                   </motion.div>
+                  {(invoicePrediction?.invoiceId === inv.id || predictingInvoice === inv.id) && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="overflow-hidden">
+                      <div className="mt-3 mb-2 px-4">
+                        <PredictCard
+                          variant="invoice"
+                          score={invoicePrediction?.invoiceId === inv.id ? invoicePrediction.score : 0}
+                          secondaryScore={invoicePrediction?.invoiceId === inv.id ? invoicePrediction.secondaryScore : 0}
+                          insights={invoicePrediction?.invoiceId === inv.id ? invoicePrediction.insights : ''}
+                          historicalStats={invoicePrediction?.invoiceId === inv.id ? invoicePrediction.historicalStats : undefined}
+                          isLoading={predictingInvoice === inv.id}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
                   <AnimatePresence>
                     {expandedInvoice === inv.id && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">

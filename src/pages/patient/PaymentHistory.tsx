@@ -86,7 +86,7 @@ const PaymentHistory: React.FC = () => {
                         {expandedInvoice === inv.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                       </button>
                       <div>
-                        <p className="text-sm font-medium text-foreground">{inv.invoice_number} — ${inv.total_amount.toLocaleString()}</p>
+                        <p className="text-sm font-medium text-foreground">{inv.invoice_number} — ₹{inv.total_amount.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">Due: {new Date(inv.due_date).toLocaleDateString()}</p>
                       </div>
                     </div>
@@ -110,7 +110,7 @@ const PaymentHistory: React.FC = () => {
                                 <span className="text-sm">{itemTypeIcon(item.item_type)}</span>
                                 <span className="text-xs text-foreground">{item.description}</span>
                               </div>
-                              <span className="text-xs font-semibold text-foreground">${item.amount.toLocaleString()}</span>
+                              <span className="text-xs font-semibold text-foreground">₹{item.amount.toLocaleString()}</span>
                             </div>
                           ))}
                         </div>
@@ -148,7 +148,7 @@ const PaymentHistory: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{inv.invoice_number}</td>
-                      <td className="px-4 py-3 font-semibold text-foreground">${inv.total_amount.toLocaleString()}</td>
+                      <td className="px-4 py-3 font-semibold text-foreground">₹{inv.total_amount.toLocaleString()}</td>
                       <td className="px-4 py-3 text-muted-foreground">{new Date(inv.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3"><span className="status-badge status-approved">Paid</span></td>
                     </motion.tr>
@@ -164,7 +164,7 @@ const PaymentHistory: React.FC = () => {
                                   <span className="text-sm">{itemTypeIcon(item.item_type)}</span>
                                   <span className="text-xs text-foreground">{item.description}</span>
                                 </div>
-                                <span className="text-xs font-semibold text-foreground">${item.amount.toLocaleString()}</span>
+                                <span className="text-xs font-semibold text-foreground">₹{item.amount.toLocaleString()}</span>
                               </div>
                             ))}
                           </div>
@@ -188,7 +188,7 @@ const PaymentHistory: React.FC = () => {
                   <button onClick={() => setPayModal(null)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
                 <p className="text-sm text-muted-foreground mb-2">Invoice {payModal.invoice_number}</p>
-                <p className="text-lg font-bold text-foreground mb-4">${payModal.total_amount.toLocaleString()}</p>
+                <p className="text-lg font-bold text-foreground mb-4">₹{payModal.total_amount.toLocaleString()}</p>
                 <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm mb-4">
                   <option>Credit Card</option>
                   <option>Debit Card</option>

@@ -31,12 +31,20 @@ import AuditLogs from "@/pages/admin/AuditLogs";
 import AutomationLogs from "@/pages/ai-analyst/AutomationLogs";
 import DoctorDashboard from "@/pages/doctor/DoctorDashboard";
 import DoctorAppointments from "@/pages/doctor/DoctorAppointments";
+import DoctorAssignCare from "@/pages/doctor/DoctorAssignCare";
 import SuperAdminDashboard from "@/pages/super-admin/SuperAdminDashboard";
 import ManageHospitals from "@/pages/super-admin/ManageHospitals";
 import SuperAdminUsers from "@/pages/super-admin/SuperAdminUsers";
 import HospitalAdminDashboard from "@/pages/hospital-admin/HospitalAdminDashboard";
 import HospitalAdminUsers from "@/pages/hospital-admin/HospitalAdminUsers";
 import HospitalAdminPatientApprovals from "@/pages/hospital-admin/HospitalAdminPatientApprovals";
+import ServiceCatalog from "@/pages/admin/ServiceCatalog";
+import Departments from "@/pages/admin/Departments";
+import TestBooking from "@/pages/patient/TestBooking";
+import OperationScheduling from "@/pages/admin/OperationScheduling";
+import OperationTheatreManagement from "@/pages/admin/OperationTheatreManagement";
+import LabReportUpload from "@/pages/admin/LabReportUpload";
+import DepartmentAnalytics from "@/pages/admin/DepartmentAnalytics";
 
 const queryClient = new QueryClient();
 
@@ -133,6 +141,11 @@ const App = () => (
                     <BookAppointment />
                   </ProtectedRoute>
                 } />
+                <Route path="/test-booking" element={
+                  <ProtectedRoute roles={[UserRole.PATIENT, UserRole.HOSPITAL_ADMIN]}>
+                    <TestBooking />
+                  </ProtectedRoute>
+                } />
                 <Route path="/patient-onboarding" element={
                   <ProtectedRoute roles={[UserRole.PATIENT]}>
                     <PatientOnboarding />
@@ -166,6 +179,41 @@ const App = () => (
                 <Route path="/doctor-appointments" element={
                   <ProtectedRoute roles={[UserRole.DOCTOR]}>
                     <DoctorAppointments />
+                  </ProtectedRoute>
+                } />
+                <Route path="/doctor-assign-care" element={
+                  <ProtectedRoute roles={[UserRole.DOCTOR]}>
+                    <DoctorAssignCare />
+                  </ProtectedRoute>
+                } />
+                <Route path="/service-catalog" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <ServiceCatalog />
+                  </ProtectedRoute>
+                } />
+                <Route path="/departments" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <Departments />
+                  </ProtectedRoute>
+                } />
+                <Route path="/operation-scheduling" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <OperationScheduling />
+                  </ProtectedRoute>
+                } />
+                <Route path="/operation-theatre" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <OperationTheatreManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="/lab-reports" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <LabReportUpload />
+                  </ProtectedRoute>
+                } />
+                <Route path="/department-analytics" element={
+                  <ProtectedRoute roles={[UserRole.HOSPITAL_ADMIN]}>
+                    <DepartmentAnalytics />
                   </ProtectedRoute>
                 } />
                 <Route path="/settings" element={

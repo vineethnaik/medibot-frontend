@@ -1,9 +1,25 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, ArrowRight, ChevronRight, Shield } from 'lucide-react';
+import { CountUp } from './CountUp';
+import { landingService, type LandingStats } from '@/services/landingService';
 
 const TRUST_BADGES = ['HIPAA Compliant', 'SOC 2 Certified', '99.9% Uptime'];
+
+const DEFAULT_STATS: LandingStats = {
+  totalClaims: 12847,
+  denialRate: 4.2,
+  revenueCollected: 218000000, // 21.8 Cr
+  aiAccuracy: 97.8,
+  claimsTrend: [40, 55, 45, 60, 50, 70, 65, 80, 75, 85, 90, 88],
+};
+
+function formatRevenue(revenue: number): { value: number; prefix: string; suffix: string; decimals: number; useLocale: boolean } {
+  if (revenue >= 1e7) return { value: revenue / 1e7, prefix: '₹', suffix: ' Cr', decimals: 1, useLocale: false };
+  if (revenue >= 1e5) return { value: revenue / 1e5, prefix: '₹', suffix: ' Lakh', decimals: 1, useLocale: false };
+  return { value: revenue, prefix: '₹', suffix: '', decimals: 0, useLocale: true };
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -22,6 +38,22 @@ const item = {
 };
 
 export const LandingHero: React.FC = () => {
+  const [stats, setStats] = useState<LandingStats>(DEFAULT_STATS);
+
+  useEffect(() => {
+    landingService.getStats().then(setStats).catch(() => {});
+  }, []);
+
+  const rev = formatRevenue(stats.revenueCollected);
+  const aiPct = stats.aiAccuracy > 0 ? stats.aiAccuracy : 85;
+
+  const desktopCards = [
+    { label: 'Total Claims', value: stats.totalClaims, prefix: '', suffix: '', decimals: 0, useLocale: true, color: 'from-primary to-secondary' as const },
+    { label: 'Revenue', ...rev, color: 'from-secondary to-accent' as const },
+    { label: 'Denial Rate', value: stats.denialRate, prefix: '', suffix: '%', decimals: 1, useLocale: false, color: 'from-warning to-destructive' as const },
+    { label: 'AI Accuracy', value: stats.aiAccuracy, prefix: '', suffix: '%', decimals: 1, useLocale: false, color: 'from-primary to-accent' as const },
+  ];
+
   return (
     <section id="hero" className="relative z-10 min-h-[90vh] flex items-center pt-24 pb-16 lg:pt-32 lg:pb-24">
       <div className="max-w-7xl mx-auto px-6 lg:px-12 w-full">
@@ -103,15 +135,12 @@ export const LandingHero: React.FC = () => {
                     <span className="text-xs text-muted-foreground ml-2 font-mono">dashboard.medibots.io</span>
                   </div>
                   <div className="grid grid-cols-4 gap-3 mb-4">
-                    {[
-                      { label: 'Total Claims', val: '12,847', color: 'from-primary to-secondary' },
-                      { label: 'Revenue', val: '$2.4M', color: 'from-secondary to-accent' },
-                      { label: 'Denial Rate', val: '4.2%', color: 'from-warning to-destructive' },
-                      { label: 'AI Accuracy', val: '97.8%', color: 'from-primary to-accent' },
-                    ].map((card) => (
+                    {desktopCards.map((card) => (
                       <div key={card.label} className="bg-card/90 rounded-xl border border-border/40 p-4 shadow-sm">
                         <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{card.label}</p>
-                        <p className={`text-xl font-bold bg-gradient-to-r ${card.color} bg-clip-text text-transparent`}>{card.val}</p>
+                        <p className={`text-xl font-bold bg-gradient-to-r ${card.color} bg-clip-text text-transparent`}>
+                          <CountUp value={card.value} prefix={card.prefix} suffix={card.suffix} decimals={card.decimals} useLocale={card.useLocale} duration={1200} />
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -119,7 +148,7 @@ export const LandingHero: React.FC = () => {
                     <div className="bg-card/90 rounded-xl border border-border/40 p-4 h-32">
                       <p className="text-[10px] text-muted-foreground mb-3 font-medium">Claims Trend</p>
                       <div className="flex items-end gap-1 h-16">
-                        {[40, 55, 45, 60, 50, 70, 65, 80, 75, 85, 90, 88].map((h, i) => (
+                        {stats.claimsTrend.map((h, i) => (
                           <motion.div
                             key={i}
                             initial={{ height: 0 }}
@@ -143,10 +172,10 @@ export const LandingHero: React.FC = () => {
                               fill="none"
                               stroke="url(#heroGrad)"
                               strokeWidth="3"
-                              strokeDasharray="85 100"
+                              strokeDasharray={`${aiPct} 100`}
                               strokeLinecap="round"
                               initial={{ strokeDasharray: '0 100' }}
-                              animate={{ strokeDasharray: '85 100' }}
+                              animate={{ strokeDasharray: `${aiPct} 100` }}
                               transition={{ delay: 0.8, duration: 1 }}
                             />
                             <defs>
@@ -156,7 +185,9 @@ export const LandingHero: React.FC = () => {
                               </linearGradient>
                             </defs>
                           </svg>
-                          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-foreground">85%</span>
+                          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-foreground">
+                            <CountUp value={aiPct} suffix="%" duration={1200} />
+                          </span>
                         </div>
                         <div className="text-xs text-muted-foreground space-y-1">
                           <p>4/5 bots active</p>
@@ -184,9 +215,16 @@ export const LandingHero: React.FC = () => {
                 <div className="w-2.5 h-2.5 rounded-full bg-success/60" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {['12,847 Claims', '$2.4M Revenue', '4.2% Denials', '97.8% AI'].map((v) => (
-                  <div key={v} className="bg-muted/40 rounded-lg p-3 text-center">
-                    <p className="text-xs font-bold text-foreground">{v}</p>
+                {[
+                  { label: 'Claims', value: stats.totalClaims, suffix: ' Claims', useLocale: true, prefix: '', decimals: 0 },
+                  { label: 'Revenue', ...rev, suffix: rev.suffix ? `${rev.suffix} Revenue` : ' Revenue' },
+                  { label: 'Denials', value: stats.denialRate, suffix: '% Denials', decimals: 1, prefix: '', useLocale: false },
+                  { label: 'AI', value: stats.aiAccuracy, suffix: '% AI', decimals: 1, prefix: '', useLocale: false },
+                ].map((item) => (
+                  <div key={item.label} className="bg-muted/40 rounded-lg p-3 text-center">
+                    <p className="text-xs font-bold text-foreground">
+                      <CountUp value={item.value} prefix={item.prefix ?? ''} suffix={item.suffix ?? ''} decimals={item.decimals ?? 0} useLocale={item.useLocale ?? false} duration={1200} />
+                    </p>
                   </div>
                 ))}
               </div>

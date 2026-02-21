@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, CalendarPlus, Stethoscope, DollarSign, CreditCard, X, CheckCircle, UserPlus, Shield } from 'lucide-react';
+import { Loader2, CalendarPlus, Stethoscope, IndianRupee, CreditCard, X, CheckCircle, UserPlus, Shield, Brain } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
+import { PredictCard } from '@/components/ai';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { fetchPatientRecord } from '@/services/dataService';
-import { createRazorpayOrder, verifyRazorpayBooking } from '@/services/dataService';
+import { fetchPatientRecord, predictAppointmentWithInsights } from '@/services/dataService';
+import { createRazorpayOrder, verifyRazorpayBooking, fetchPatientLatePaymentCount } from '@/services/dataService';
 import { openRazorpayCheckout } from '@/lib/razorpay';
 
 const CONSULTATION_FEE = 150; // Default consultation fee
@@ -22,9 +23,20 @@ const BookAppointment: React.FC = () => {
   const [doctorId, setDoctorId] = useState('');
   const [date, setDate] = useState('');
   const [reason, setReason] = useState('');
+  const [appointmentType, setAppointmentType] = useState('CONSULTATION');
+  const [distanceKm, setDistanceKm] = useState('');
+  const [hasMissedAppointment, setHasMissedAppointment] = useState<boolean | null>(null);
+  const [missedAppointmentCount, setMissedAppointmentCount] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [pendingAppointment, setPendingAppointment] = useState<any>(null);
   const [payStep, setPayStep] = useState<PayModalStep>('confirm');
+  const [predictingAppt, setPredictingAppt] = useState(false);
+  const [apptPrediction, setApptPrediction] = useState<{
+    score: number;
+    secondaryScore: number;
+    insights: string;
+    historicalStats?: Record<string, unknown>;
+  } | null>(null);
 
   const { data: patient, isLoading: patientLoading } = useQuery({
     queryKey: ['my-patient-record', user?.id],
@@ -51,6 +63,12 @@ const BookAppointment: React.FC = () => {
     enabled: !!patient,
   });
 
+  const { data: latePaymentData } = useQuery({
+    queryKey: ['late-payment-count', patient?.id],
+    queryFn: () => fetchPatientLatePaymentCount(patient!.id),
+    enabled: !!patient?.id,
+  });
+
   const getDoctorName = (doctorUserId: string) => {
     const doc = doctors.find(d => d.user_id === doctorUserId);
     return doc ? `Dr. ${doc.name}` : 'Doctor';
@@ -58,13 +76,60 @@ const BookAppointment: React.FC = () => {
 
   const selectedDoctor = doctors.find(d => d.user_id === doctorId);
 
+  const handlePredictAppointment = async () => {
+    if (!patient || !doctorId || !date || !appointmentType || distanceKm === '' || hasMissedAppointment === null) return;
+    if (hasMissedAppointment === true && (missedAppointmentCount === '' || parseInt(missedAppointmentCount, 10) < 0)) return;
+    setPredictingAppt(true);
+    setApptPrediction(null);
+    try {
+      const missedCount = hasMissedAppointment === false ? 0 : parseInt(missedAppointmentCount || '0', 10);
+      const features: Record<string, unknown> = {
+        patient_id: patient!.id,
+        doctor_id: doctorId,
+        appointment_date: new Date(date).toISOString(),
+        appointment_type: appointmentType,
+        distance_from_hospital_km: parseFloat(distanceKm),
+        previous_no_show_count: missedCount,
+        reminder_count: 1,
+        sms_reminder_sent: true,
+        patient_age: patient?.dob ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 40,
+        patient_gender: patient?.gender ?? 'MALE',
+        previous_late_payments: latePaymentData?.previous_late_payments ?? 0,
+        consultation_fee: CONSULTATION_FEE,
+        time_slot: new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        weekday: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(date).getDay()],
+        booking_lead_time_days: Math.ceil((new Date(date).getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+      };
+      const res = await predictAppointmentWithInsights(features);
+      const attendancePct = res.attendance_rate_pct ?? (res.prediction === 1 ? (1 - res.probability) * 100 : res.probability * 100);
+      const noShowPct = res.no_show_rate_pct ?? (100 - attendancePct);
+      setApptPrediction({
+        score: Math.round(attendancePct),
+        secondaryScore: Math.round(noShowPct),
+        insights: res.insights || 'Unable to load insights.',
+        historicalStats: res.historical_stats,
+      });
+    } catch {
+      setApptPrediction({
+        score: 70,
+        secondaryScore: 30,
+        insights: 'Prediction unavailable. Please try again.',
+      });
+    } finally {
+      setPredictingAppt(false);
+    }
+  };
+
   const handleBookClick = () => {
-    if (!doctorId || !date) return;
+    if (!doctorId || !date || !appointmentType || distanceKm === '' || distanceKm == null) return;
+    if (hasMissedAppointment === null) return;
+    if (hasMissedAppointment === true && (missedAppointmentCount === '' || parseInt(missedAppointmentCount, 10) < 0)) return;
     if (!patient) {
       toast.error('Please complete your profile first to book an appointment.');
       return;
     }
-    setPendingAppointment({ doctorId, date, reason });
+    const missedCount = hasMissedAppointment === false ? 0 : parseInt(missedAppointmentCount || '0', 10);
+    setPendingAppointment({ doctorId, date, reason, appointmentType, distanceKm, missedCount });
     setPayStep('confirm');
     setShowPayModal(true);
   };
@@ -87,6 +152,14 @@ const BookAppointment: React.FC = () => {
         hospital_id: patientHospitalId || undefined,
         amount: CONSULTATION_FEE,
         doctor_name: selectedDoctor?.name,
+        appointment_type: pendingAppointment!.appointmentType || undefined,
+        distance_from_hospital_km: pendingAppointment!.distanceKm ? parseFloat(pendingAppointment!.distanceKm) : undefined,
+        previous_no_show_count: pendingAppointment!.missedCount,
+        time_slot: pendingAppointment!.date ? new Date(pendingAppointment!.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : undefined,
+        weekday: pendingAppointment!.date ? ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(pendingAppointment!.date).getDay()] : undefined,
+        patient_age: patient?.dob ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : undefined,
+        patient_gender: patient?.gender ?? undefined,
+        previous_late_payments: latePaymentData?.previous_late_payments ?? 0,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-appointments'] });
@@ -218,27 +291,99 @@ const BookAppointment: React.FC = () => {
               </div>
             </div>
 
+            {/* Additional appointment details - mandatory */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Appointment Type</label>
+                <select value={appointmentType} onChange={e => setAppointmentType(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm" required>
+                  <option value="CONSULTATION">Consultation</option>
+                  <option value="FOLLOW_UP">Follow-up</option>
+                  <option value="CHECKUP">Checkup</option>
+                  <option value="EMERGENCY">Emergency</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Distance from Hospital (km)</label>
+                <input type="number" value={distanceKm} onChange={e => setDistanceKm(e.target.value)} placeholder="e.g. 5.2" min="0" step="0.1" className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm" required />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Have you missed any appointment?</label>
+                <div className="flex gap-3 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => { setHasMissedAppointment(true); setMissedAppointmentCount(''); }}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${hasMissedAppointment === true ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background text-foreground hover:bg-muted/50'}`}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setHasMissedAppointment(false); setMissedAppointmentCount(''); }}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${hasMissedAppointment === false ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background text-foreground hover:bg-muted/50'}`}
+                  >
+                    No
+                  </button>
+                </div>
+                {hasMissedAppointment === true && (
+                  <input type="number" value={missedAppointmentCount} onChange={e => setMissedAppointmentCount(e.target.value)} placeholder="Enter number" min="0" className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm" />
+                )}
+                {hasMissedAppointment === false && <span className="text-xs text-muted-foreground">Value: 0</span>}
+              </div>
+            </div>
+            {patient && (
+              <div className="p-3 rounded-lg bg-muted/20 text-xs text-muted-foreground mt-2">
+                <p>Patient info (from profile): Age {patient.dob ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : '—'}, Gender {patient.gender || '—'}, Previous late payments {latePaymentData?.previous_late_payments ?? '—'}</p>
+              </div>
+            )}
+
             {/* Consultation Fee & Book */}
             {doctorId && (
               <div className="md:col-span-2 p-3 rounded-lg bg-primary/5 border border-primary/15 flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-primary" />
+                  <IndianRupee className="w-4 h-4 text-primary" />
                   <span className="text-sm text-foreground font-medium">Consultation Fee</span>
                 </div>
                 <span className="text-lg font-bold text-foreground">₹{CONSULTATION_FEE}</span>
               </div>
             )}
 
+            {apptPrediction && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4"
+              >
+                <PredictCard
+                  variant="appointment"
+                  score={apptPrediction.score}
+                  secondaryScore={apptPrediction.secondaryScore}
+                  insights={apptPrediction.insights}
+                  historicalStats={apptPrediction.historicalStats}
+                  isLoading={predictingAppt}
+                />
+              </motion.div>
+            )}
+
             <div>
               <span className="text-xs font-semibold text-primary uppercase tracking-wider">Step 4</span>
-              <button
-                onClick={handleBookClick}
-                disabled={!doctorId || !date || verifyBookingMutation.isPending}
-                className="mt-2 px-5 py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center gap-2"
-              >
-                <CreditCard className="w-4 h-4" />
-                {verifyBookingMutation.isPending ? 'Processing…' : doctorId && selectedDoctor ? `Book with Dr. ${selectedDoctor.name} — Pay ₹${CONSULTATION_FEE}` : `Pay ₹${CONSULTATION_FEE} & Book`}
-              </button>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={handlePredictAppointment}
+                  disabled={!patient || !doctorId || !date || !appointmentType || !distanceKm || distanceKm === '' || hasMissedAppointment === null || (hasMissedAppointment === true && (missedAppointmentCount === '' || parseInt(missedAppointmentCount, 10) < 0)) || predictingAppt}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-primary text-primary text-sm font-medium hover:bg-primary/10 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {predictingAppt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                  Predict
+                </button>
+                <button
+                  onClick={handleBookClick}
+                  disabled={!doctorId || !date || !appointmentType || !distanceKm || distanceKm === '' || hasMissedAppointment === null || (hasMissedAppointment === true && (missedAppointmentCount === '' || parseInt(missedAppointmentCount, 10) < 0)) || verifyBookingMutation.isPending}
+                  className="flex-1 px-5 py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  {verifyBookingMutation.isPending ? 'Processing…' : doctorId && selectedDoctor ? `Book with Dr. ${selectedDoctor.name} — Pay ₹${CONSULTATION_FEE}` : `Pay ₹${CONSULTATION_FEE} & Book`}
+                </button>
+              </div>
             </div>
           </motion.div>
 
@@ -261,8 +406,8 @@ const BookAppointment: React.FC = () => {
                       <td className="px-4 py-3 text-muted-foreground">{a.reason || '—'}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">₹{a.consultation_fee || 0}</span>
-                          {feePaidBadge(!!a.fee_paid)}
+                          <span className="text-xs text-muted-foreground">₹{(a.consultation_fee ?? a.consultationFee) || 0}</span>
+                          {feePaidBadge(!!(a.fee_paid ?? a.feePaid))}
                         </div>
                       </td>
                       <td className="px-4 py-3"><span className={`status-badge ${statusCls(a.status)}`}>{a.status}</span></td>

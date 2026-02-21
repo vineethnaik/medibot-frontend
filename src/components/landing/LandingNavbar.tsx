@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Activity, Sun, Moon } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 
 const NAV_ITEMS = [
@@ -48,9 +48,7 @@ export const LandingNavbar: React.FC = () => {
     >
       <div className="flex items-center justify-between h-16 max-w-7xl mx-auto px-6 lg:px-12">
         <Link to="/" className="flex items-center gap-3 group" aria-label="MediBots Home">
-          <div className="w-10 h-10 rounded-xl gradient-primary shadow-md flex items-center justify-center group-hover:scale-[1.03] transition-transform">
-            <Activity className="w-6 h-6 text-primary-foreground" />
-          </div>
+          <img src="/logom.png" alt="MediBots" className="w-10 h-10 rounded-full object-cover group-hover:scale-[1.03] transition-transform" />
           <span className="text-xl font-bold text-foreground tracking-tight">MediBots</span>
         </Link>
 

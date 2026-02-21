@@ -9,7 +9,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import StatCard from '@/components/ui/StatCard';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardService } from '@/services/dashboardService';
-import { DollarSign, ShieldAlert, Target, BarChart3, TrendingUp } from 'lucide-react';
+import { IndianRupee, ShieldAlert, Target, BarChart3, TrendingUp } from 'lucide-react';
 import { aiPerformance } from '@/services/mockData';
 
 interface AnalyticsData {
@@ -75,7 +75,7 @@ const Analytics: React.FC = () => {
   const hasData = s && s.totalClaims > 0;
 
   const kpis = [
-    { label: 'Total Revenue', value: s?.totalRevenue || 0, prefix: '$', suffix: '', icon: DollarSign, valueColor: 'success' as const },
+    { label: 'Total Revenue', value: s?.totalRevenue || 0, prefix: '₹', suffix: '', icon: IndianRupee, valueColor: 'success' as const },
     { label: 'Denial Rate', value: s?.denialRate || 0, suffix: '%', icon: ShieldAlert, valueColor: 'destructive' as const, decimals: 1 },
     { label: 'Collection Rate', value: s?.collectionRate || 0, suffix: '%', icon: Target, valueColor: 'default' as const, decimals: 1 },
     { label: 'Avg Risk Score', value: s?.avgRiskScore || 0, icon: BarChart3, valueColor: 'warning' as const, decimals: 1 },
@@ -174,8 +174,8 @@ const Analytics: React.FC = () => {
                 <AreaChart data={analytics.monthlyTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`$${v.toLocaleString()}`, 'Revenue']} />
+                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`₹${v.toLocaleString()}`, 'Revenue']} />
                   <Area type="monotone" dataKey="revenue" stroke="hsl(211,100%,52%)" fill="hsl(211,100%,52%)" fillOpacity={0.12} strokeWidth={2} name="Revenue" animationDuration={1500} />
                 </AreaChart>
               </ResponsiveContainer>

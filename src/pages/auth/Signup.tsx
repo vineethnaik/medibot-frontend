@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { Activity, Eye, EyeOff, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AuthCinematicBackground } from '@/components/auth/AuthCinematicBackground';
 
@@ -59,9 +59,7 @@ const Signup: React.FC = () => {
         className="w-full max-w-md relative z-10"
       >
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl gradient-primary shadow-lg">
-            <Activity className="w-7 h-7 text-primary-foreground" />
-          </div>
+          <img src="/logom.png" alt="MediBots" className="w-12 h-12 rounded-full object-cover" />
           <div>
             <h1 className="text-2xl font-bold text-foreground tracking-tight">MediBots</h1>
             <p className="text-xs text-muted-foreground">AI Healthcare RCM</p>

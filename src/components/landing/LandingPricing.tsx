@@ -2,12 +2,14 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Check, Star } from 'lucide-react';
+import { CountUp } from './CountUp';
 
 const PLANS = [
   {
     name: 'Starter',
-    price: '$299',
+    price: 27209,
     period: '/month',
+    priceCustom: null as string | null,
     desc: 'For small practices getting started with AI-powered RCM.',
     features: ['Up to 500 claims/month', 'Basic AI denial prediction', '2 user seats', 'Email support', 'Standard analytics'],
     cta: 'Start Free Trial',
@@ -15,8 +17,9 @@ const PLANS = [
   },
   {
     name: 'Professional',
-    price: '$799',
+    price: 72709,
     period: '/month',
+    priceCustom: null as string | null,
     desc: 'For growing organizations that need full automation.',
     features: ['Up to 5,000 claims/month', 'Advanced AI + automation bots', '10 user seats', 'Priority support', 'Real-time analytics & API', 'Custom workflows'],
     cta: 'Start Free Trial',
@@ -24,8 +27,9 @@ const PLANS = [
   },
   {
     name: 'Enterprise',
-    price: 'Custom',
+    price: 0,
     period: '',
+    priceCustom: 'Custom',
     desc: 'For large health systems with complex needs.',
     features: ['Unlimited claims', 'Full AI suite + custom models', 'Unlimited users', 'Dedicated success manager', 'SLA & on-prem options', 'HIPAA BAA included'],
     cta: 'Contact Sales',
@@ -94,7 +98,13 @@ export const LandingPricing: React.FC = () => {
               </div>
 
               <div className="mb-6">
-                <span className="text-4xl font-extrabold text-foreground">{plan.price}</span>
+                <span className="text-4xl font-extrabold text-foreground">
+                  {plan.priceCustom != null ? (
+                    plan.priceCustom
+                  ) : (
+                    <CountUp value={plan.price} prefix="₹" useLocale duration={1800} />
+                  )}
+                </span>
                 <span className="text-muted-foreground text-sm">{plan.period}</span>
               </div>
 

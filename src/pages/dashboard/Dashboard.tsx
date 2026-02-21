@@ -2,7 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { dashboardService } from '@/services/dashboardService';
-import { TrendingUp, CheckCircle, XCircle, DollarSign, Brain } from 'lucide-react';
+import { TrendingUp, CheckCircle, XCircle, IndianRupee, Brain } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import AnimatedCounter from '@/components/layout/AnimatedCounter';
 import PageTransition from '@/components/layout/PageTransition';
@@ -23,7 +23,7 @@ const Dashboard: React.FC = () => {
     { label: 'Total Claims', value: kpis.totalClaims, icon: TrendingUp, change: '+12.5%', prefix: '', suffix: '', decimals: 0 },
     { label: 'Approved Claims', value: kpis.approvedClaims, icon: CheckCircle, change: '+8.2%', prefix: '', suffix: '', decimals: 0 },
     { label: 'Denial Rate', value: kpis.denialRate, icon: XCircle, change: '-2.1%', prefix: '', suffix: '%', decimals: 1 },
-    { label: 'Revenue Collected', value: kpis.revenueCollected / 1e6, icon: DollarSign, change: '+15.3%', prefix: '$', suffix: 'M', decimals: 1 },
+    { label: 'Revenue Collected', value: kpis.revenueCollected / 1e6, icon: IndianRupee, change: '+15.3%', prefix: '₹', suffix: 'M', decimals: 1 },
     { label: 'AI Accuracy', value: kpis.aiAccuracy, icon: Brain, change: '+1.2%', prefix: '', suffix: '%', decimals: 1, glow: true },
   ] : [];
 
@@ -80,8 +80,8 @@ const Dashboard: React.FC = () => {
               <AreaChart data={revenue}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `₹${v.toLocaleString()}`} />
                 <Area type="monotone" dataKey="value" stroke="hsl(173,100%,38%)" fill="hsl(173,100%,38%)" fillOpacity={0.12} strokeWidth={2} animationDuration={1500} />
               </AreaChart>
             </ResponsiveContainer>

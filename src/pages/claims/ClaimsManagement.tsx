@@ -2,13 +2,16 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { UserRole } from '@/types';
-import { Search, Brain, ArrowUpDown, Download, X, Loader2, Plus } from 'lucide-react';
+import { Search, Brain, ArrowUpDown, Download, X, Loader2, Plus, RefreshCw } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
 import PageHeader from '@/components/ui/PageHeader';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchClaims, manageClaim, createClaim, fetchCompletedAppointmentsForClaims, DbClaim } from '@/services/dataService';
+import { fetchClaims, manageClaim, createClaim, fetchCompletedAppointmentsForClaims, predictClaimWithInsights, rescoreClaims, DbClaim, CreateClaimPayload } from '@/services/dataService';
 import { useToast } from '@/hooks/use-toast';
 import { useRealtimeClaims } from '@/hooks/useRealtimeClaims';
+import { useRealtimeRisk } from '@/hooks/useRealtimeRisk';
+import { AIRiskGauge, AIInsightsSidebar, AIActivityTimeline, PredictCard } from '@/components/ai';
+import type { ActivityEvent } from '@/components/ai/AIActivityTimeline';
 
 type SortField = 'amount' | 'ai_risk_score';
 type StatusFilter = 'all' | 'PENDING' | 'APPROVED' | 'DENIED';
@@ -18,6 +21,7 @@ const ClaimsManagement: React.FC = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   useRealtimeClaims();
+  useRealtimeRisk({ pollIntervalMs: 20000 });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedClaim, setSelectedClaim] = useState<DbClaim | null>(null);
@@ -28,21 +32,42 @@ const ClaimsManagement: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedApptId, setSelectedApptId] = useState('');
   const [claimAmount, setClaimAmount] = useState('');
+  const [showClaimExtras, setShowClaimExtras] = useState(false);
+  const [claimExtras, setClaimExtras] = useState<Partial<CreateClaimPayload>>({});
+  const [claimPrediction, setClaimPrediction] = useState<{
+    score: number;
+    secondaryScore: number;
+    insights: string;
+    historicalStats?: Record<string, unknown>;
+  } | null>(null);
+  const [predictingClaim, setPredictingClaim] = useState(false);
 
   const canApprove = user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.HOSPITAL_ADMIN || user?.role === UserRole.INSURANCE;
   const canExport = user?.role !== UserRole.PATIENT;
   const isReadOnly = user?.role === UserRole.AI_ANALYST;
-  const canCreateClaim = user?.role === UserRole.BILLING || user?.role === UserRole.HOSPITAL_ADMIN || user?.role === UserRole.SUPER_ADMIN;
+  const canCreateClaim = user?.role === UserRole.BILLING || user?.role === UserRole.HOSPITAL_ADMIN || user?.role === UserRole.INSURANCE || user?.role === UserRole.SUPER_ADMIN;
 
   const { data: claims = [], isLoading } = useQuery({
     queryKey: ['claims'],
     queryFn: fetchClaims,
   });
 
-  const { data: completedAppts = [] } = useQuery({
+  const { data: completedAppts = [], isError: completedApptsError, isLoading: completedApptsLoading } = useQuery({
     queryKey: ['completed-appointments-for-claims'],
     queryFn: fetchCompletedAppointmentsForClaims,
-    enabled: canCreateClaim,
+    enabled: canCreateClaim && showCreateModal,
+    retry: 1,
+  });
+
+  const rescoreMutation = useMutation({
+    mutationFn: rescoreClaims,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['claims'] });
+      toast({ title: 'AI scores updated', description: `Re-scored ${data.rescored} of ${data.total} claims.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
   });
 
   const actionMutation = useMutation({
@@ -58,6 +83,47 @@ const ClaimsManagement: React.FC = () => {
     },
   });
 
+  const handlePredictClaim = async () => {
+    const appt = completedAppts.find(a => a.id === selectedApptId);
+    if (!appt) return;
+    const amount = parseFloat(claimAmount);
+    if (!amount || amount <= 0) return;
+    setPredictingClaim(true);
+    setClaimPrediction(null);
+    try {
+      const provider = (appt.patients as any)?.insurance_provider || 'Unknown';
+      const patientName = (appt.patients as any)?.full_name ?? (appt.patients as any)?.fullName ?? 'Patient';
+      const extras = Object.fromEntries(
+        Object.entries(claimExtras).filter(([, v]) => v !== '' && v !== undefined && v !== null)
+      ) as Partial<CreateClaimPayload>;
+      const features: Record<string, unknown> = {
+        patient_id: appt.patient_id,
+        patient_name: patientName,
+        amount,
+        insurance_provider: provider,
+        ...extras,
+      };
+      if ((appt as any).hospital_id) features.hospital_id = (appt as any).hospital_id;
+      const res = await predictClaimWithInsights(features);
+      const acceptancePct = res.acceptance_rate_pct ?? (res.prediction === 1 ? (1 - res.probability) * 100 : res.probability * 100);
+      const denialPct = res.denial_rate_pct ?? (100 - acceptancePct);
+      setClaimPrediction({
+        score: Math.round(acceptancePct),
+        secondaryScore: Math.round(denialPct),
+        insights: res.insights || 'Unable to load insights.',
+        historicalStats: res.historical_stats,
+      });
+    } catch {
+      setClaimPrediction({
+        score: 50,
+        secondaryScore: 50,
+        insights: 'Prediction unavailable. Please try again.',
+      });
+    } finally {
+      setPredictingClaim(false);
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const appt = completedAppts.find(a => a.id === selectedApptId);
@@ -65,7 +131,11 @@ const ClaimsManagement: React.FC = () => {
       const amount = parseFloat(claimAmount);
       if (!amount || amount <= 0) throw new Error('Enter a valid amount');
       const provider = (appt.patients as any)?.insurance_provider || 'Unknown';
-      return createClaim(appt.patient_id, provider, amount, appt.id);
+      const extras = Object.fromEntries(
+        Object.entries(claimExtras).filter(([, v]) => v !== '' && v !== undefined && v !== null)
+      ) as Partial<CreateClaimPayload>;
+      if ((appt as any).hospital_id) extras.hospital_id = (appt as any).hospital_id;
+      return createClaim(appt.patient_id, provider, amount, appt.id, Object.keys(extras).length > 0 ? extras : undefined);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['claims'] });
@@ -73,6 +143,8 @@ const ClaimsManagement: React.FC = () => {
       setShowCreateModal(false);
       setSelectedApptId('');
       setClaimAmount('');
+      setClaimExtras({});
+      setClaimPrediction(null);
       toast({ title: 'Claim Created', description: 'The claim has been created with AI risk scoring.' });
     },
     onError: (err: Error) => {
@@ -116,10 +188,49 @@ const ClaimsManagement: React.FC = () => {
     return <span className={`status-badge ${cls}`}>{status.charAt(0) + status.slice(1).toLowerCase()}</span>;
   };
 
-  const riskColor = (score: number | null) => {
-    if (score === null) return 'text-muted-foreground';
-    return score < 30 ? 'text-success' : score < 60 ? 'text-warning' : 'text-destructive';
-  };
+  const highRiskClaims = useMemo(
+    () =>
+      claims
+        .filter(c => (c.ai_risk_score ?? 0) >= 50)
+        .slice(0, 10)
+        .map(c => ({
+          id: c.id,
+          type: 'claim' as const,
+          label: `${c.claim_number} — ${c.patients?.full_name || 'Unknown'}`,
+          amount: c.amount,
+          riskScore: Math.round(c.ai_risk_score ?? 0),
+        })),
+    [claims]
+  );
+
+  const estimatedImpact = useMemo(
+    () => highRiskClaims.reduce((sum, c) => sum + (c.amount ?? 0), 0),
+    [highRiskClaims]
+  );
+
+  const activityEvents: ActivityEvent[] = useMemo(() => {
+    const events: ActivityEvent[] = [];
+    const now = new Date();
+    highRiskClaims.slice(0, 5).forEach((c, i) => {
+      events.push({
+        id: `eval-${c.id}`,
+        type: 'model_eval',
+        message: `Model re-evaluated claim ${c.label.split('—')[0]?.trim() || c.id}`,
+        timestamp: new Date(now.getTime() - (i + 1) * 60000).toLocaleTimeString(),
+        entityType: 'claim',
+      });
+    });
+    if (highRiskClaims.length > 0) {
+      events.unshift({
+        id: 'risk-update',
+        type: 'risk_update',
+        message: 'Risk scores updated across high-risk claims',
+        timestamp: new Date().toLocaleTimeString(),
+        entityType: 'claim',
+      });
+    }
+    return events.slice(0, 8);
+  }, [highRiskClaims]);
 
   if (isLoading) {
     return (
@@ -134,6 +245,8 @@ const ClaimsManagement: React.FC = () => {
   return (
     <PageTransition>
       <div className="space-y-6">
+        <div className="flex gap-6">
+          <div className="flex-1 min-w-0 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <PageHeader
             title="Claims Management"
@@ -169,9 +282,19 @@ const ClaimsManagement: React.FC = () => {
             ))}
           </div>
           {canExport && (
-            <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-border text-foreground hover:bg-muted transition-all duration-200 hover-lift">
-              <Download className="w-4 h-4" /> Export CSV
-            </button>
+            <>
+              <button
+                onClick={() => rescoreMutation.mutate()}
+                disabled={rescoreMutation.isPending || claims.length === 0}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-primary text-primary hover:bg-primary/10 transition-all duration-200 hover-lift disabled:opacity-50"
+              >
+                {rescoreMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Re-score AI
+              </button>
+              <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border border-border text-foreground hover:bg-muted transition-all duration-200 hover-lift">
+                <Download className="w-4 h-4" /> Export CSV
+              </button>
+            </>
           )}
         </div>
 
@@ -209,8 +332,22 @@ const ClaimsManagement: React.FC = () => {
                     <td className="px-4 py-3 font-mono text-xs">{claim.claim_number}</td>
                     <td className="px-4 py-3 font-medium text-foreground">{claim.patients?.full_name || '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{claim.insurance_provider}</td>
-                    <td className="px-4 py-3 font-semibold text-foreground">${claim.amount.toLocaleString()}</td>
-                    <td className="px-4 py-3"><span className={`font-bold ${riskColor(claim.ai_risk_score)}`}>{claim.ai_risk_score !== null ? `${claim.ai_risk_score}%` : '—'}</span></td>
+                    <td className="px-4 py-3 font-semibold text-foreground">₹{claim.amount.toLocaleString()}</td>
+                    <td className="px-4 py-2">
+                      {claim.ai_risk_score != null ? (
+                        <div className="flex items-center" onClick={e => e.stopPropagation()}>
+                          <AIRiskGauge
+                            score={Math.round(claim.ai_risk_score)}
+                            variant="denial"
+                            size="sm"
+                            showDetails={false}
+                            confidence={0.92}
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">{statusBadge(claim.status)}</td>
                     <td className="px-4 py-3">
                       <button className="text-xs font-medium text-primary hover:underline">View</button>
@@ -234,6 +371,28 @@ const ClaimsManagement: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+          </div>
+
+          {/* AI Insights Sidebar */}
+          <aside className="hidden lg:flex flex-col gap-4 w-80 flex-shrink-0">
+            <AIInsightsSidebar
+              highRiskClaims={highRiskClaims}
+              estimatedImpact={estimatedImpact}
+              weeklySummary={{
+                claimsReviewed: claims.length,
+                invoicesAtRisk: 0,
+                apptsNoShow: 0,
+              }}
+              onItemClick={(item) => {
+                const claim = claims.find(c => c.id === item.id);
+                if (claim) setSelectedClaim(claim);
+              }}
+            />
+            <div className="kpi-card rounded-2xl p-4">
+              <AIActivityTimeline events={activityEvents} maxItems={8} />
+            </div>
+          </aside>
         </div>
 
         {/* Claim Detail Modal */}
@@ -261,12 +420,45 @@ const ClaimsManagement: React.FC = () => {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Patient</span><span className="font-medium text-foreground">{selectedClaim.patients?.full_name || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Payer</span><span className="text-foreground">{selectedClaim.insurance_provider}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold text-foreground">${selectedClaim.amount.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-bold text-foreground">₹{selectedClaim.amount.toLocaleString()}</span></div>
                   <div className="flex justify-between items-center"><span className="text-muted-foreground">Status</span>{statusBadge(selectedClaim.status)}</div>
-                  <div className="flex justify-between items-center"><span className="text-muted-foreground">AI Risk</span><span className={`font-bold ${riskColor(selectedClaim.ai_risk_score)}`}>{selectedClaim.ai_risk_score !== null ? `${selectedClaim.ai_risk_score}%` : '—'}</span></div>
+                  <div>
+                    <span className="text-muted-foreground text-sm block mb-2">AI Denial Risk</span>
+                    {selectedClaim.ai_risk_score != null ? (
+                      <AIRiskGauge
+                        score={Math.round(selectedClaim.ai_risk_score)}
+                        variant="denial"
+                        size="md"
+                        showDetails={true}
+                        confidence={0.92}
+                        explanation={selectedClaim.ai_explanation ?? undefined}
+                      />
+                    ) : (selectedClaim as any).ml_denial_probability != null ? (
+                      <AIRiskGauge
+                        score={Math.round(((selectedClaim as any).ml_denial_probability ?? 0) * 100)}
+                        variant="denial"
+                        size="md"
+                        showDetails={true}
+                        confidence={0.92}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Submitted</span><span className="text-foreground">{new Date(selectedClaim.submitted_at).toLocaleDateString()}</span></div>
                   {selectedClaim.processed_at && (
                     <div className="flex justify-between"><span className="text-muted-foreground">Processed</span><span className="text-foreground">{new Date(selectedClaim.processed_at).toLocaleDateString()}</span></div>
+                  )}
+                  {(selectedClaim.primary_icd_code || selectedClaim.cpt_code || selectedClaim.claim_type) && (
+                    <div className="mt-3 pt-3 border-t border-border space-y-1 text-xs">
+                      {selectedClaim.primary_icd_code && <div className="flex justify-between"><span className="text-muted-foreground">Primary ICD</span><span className="text-foreground font-mono">{selectedClaim.primary_icd_code}</span></div>}
+                      {selectedClaim.secondary_icd_code && <div className="flex justify-between"><span className="text-muted-foreground">Secondary ICD</span><span className="text-foreground font-mono">{selectedClaim.secondary_icd_code}</span></div>}
+                      {selectedClaim.cpt_code && <div className="flex justify-between"><span className="text-muted-foreground">CPT Code</span><span className="text-foreground font-mono">{selectedClaim.cpt_code}</span></div>}
+                      {selectedClaim.claim_type && <div className="flex justify-between"><span className="text-muted-foreground">Claim Type</span><span className="text-foreground">{selectedClaim.claim_type}</span></div>}
+                      {selectedClaim.procedure_category && <div className="flex justify-between"><span className="text-muted-foreground">Procedure</span><span className="text-foreground">{selectedClaim.procedure_category}</span></div>}
+                      {selectedClaim.patient_age != null && <div className="flex justify-between"><span className="text-muted-foreground">Patient Age</span><span className="text-foreground">{selectedClaim.patient_age}</span></div>}
+                      {selectedClaim.documentation_complete != null && <div className="flex justify-between"><span className="text-muted-foreground">Docs Complete</span><span className="text-foreground">{selectedClaim.documentation_complete ? 'Yes' : 'No'}</span></div>}
+                    </div>
                   )}
 
                   {selectedClaim.ai_explanation && (
@@ -312,22 +504,27 @@ const ClaimsManagement: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30"
-              onClick={() => setShowCreateModal(false)}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 overflow-y-auto p-4"
+              onClick={() => { setShowCreateModal(false); setClaimPrediction(null); }}
             >
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 16 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.97 }}
-                className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 p-6"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between mb-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md mx-4 max-h-[90vh] flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between p-6 pb-0 flex-shrink-0">
                   <h3 className="text-lg font-bold text-foreground">Create Claim from Appointment</h3>
-                  <button onClick={() => setShowCreateModal(false)} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>
+                  <button onClick={() => { setShowCreateModal(false); setClaimPrediction(null); }} className="p-1 rounded-lg hover:bg-muted"><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
 
-                {completedAppts.length === 0 ? (
+                <div className="flex-1 overflow-y-auto p-6 pt-4">
+                {completedApptsLoading ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">Loading appointments…</p>
+                ) : completedApptsError ? (
+                  <p className="text-sm text-destructive py-4 text-center">Failed to load appointments. You may not have permission. Try again.</p>
+                ) : completedAppts.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">No completed appointments available for claim creation.</p>
                 ) : (
                   <div className="space-y-4">
@@ -335,27 +532,42 @@ const ClaimsManagement: React.FC = () => {
                       <label className="block text-xs font-medium text-muted-foreground mb-1">Completed Appointment</label>
                       <select
                         value={selectedApptId}
-                        onChange={e => setSelectedApptId(e.target.value)}
+                        onChange={e => {
+                          const id = e.target.value;
+                          setSelectedApptId(id);
+                          const appt = completedAppts.find(a => a.id === id);
+                          const fee = appt?.consultation_fee ?? appt?.consultationFee ?? null;
+                          setClaimAmount(fee != null ? String(Number(fee)) : '');
+                        }}
                         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm"
                       >
                         <option value="">Select an appointment</option>
                         {completedAppts.map(a => (
                           <option key={a.id} value={a.id}>
-                            {(a.patients as any)?.full_name || 'Unknown'} — {new Date(a.appointment_date).toLocaleDateString()} {a.reason ? `(${a.reason})` : ''}
+                            Dr. {(a.doctors as any)?.name || a.doctor_name || '—'} · {(a.patients as any)?.full_name || (a.patients as any)?.fullName || 'Unknown'} — {new Date(a.appointment_date ?? a.appointmentDate ?? '').toLocaleDateString()} {a.reason ? `(${a.reason})` : ''}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    {selectedApptId && (
-                      <div className="p-3 rounded-lg bg-muted/20 text-xs text-muted-foreground">
-                        <p><strong className="text-foreground">Patient:</strong> {(completedAppts.find(a => a.id === selectedApptId)?.patients as any)?.full_name}</p>
-                        <p><strong className="text-foreground">Insurance:</strong> {(completedAppts.find(a => a.id === selectedApptId)?.patients as any)?.insurance_provider || 'N/A'}</p>
-                      </div>
-                    )}
+                    {selectedApptId && (() => {
+                      const appt = completedAppts.find(a => a.id === selectedApptId);
+                      const doctorName = (appt?.doctors as any)?.name ?? (appt as any)?.doctor_name ?? '—';
+                      const patientName = (appt?.patients as any)?.full_name ?? (appt?.patients as any)?.fullName ?? '—';
+                      const insuranceProvider = (appt?.patients as any)?.insurance_provider ?? 'N/A';
+                      const fee = appt?.consultation_fee ?? (appt as any)?.consultationFee ?? null;
+                      return (
+                        <div className="p-3 rounded-lg bg-muted/20 text-xs text-muted-foreground space-y-1">
+                          <p><strong className="text-foreground">Doctor:</strong> Dr. {doctorName}</p>
+                          <p><strong className="text-foreground">Patient:</strong> {patientName}</p>
+                          <p><strong className="text-foreground">Insurance:</strong> {insuranceProvider}</p>
+                          {fee != null && <p><strong className="text-foreground">Consultation fee:</strong> ₹{Number(fee).toLocaleString()}</p>}
+                        </div>
+                      );
+                    })()}
 
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground mb-1">Claim Amount ($)</label>
+                      <label className="block text-xs font-medium text-muted-foreground mb-1">Claim Amount (₹)</label>
                       <input
                         type="number"
                         value={claimAmount}
@@ -366,15 +578,76 @@ const ClaimsManagement: React.FC = () => {
                       />
                     </div>
 
-                    <button
-                      onClick={() => createMutation.mutate()}
-                      disabled={!selectedApptId || !claimAmount || createMutation.isPending}
-                      className="w-full py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50"
-                    >
-                      {createMutation.isPending ? 'Creating…' : 'Create Claim with AI Scoring'}
-                    </button>
+                    <div className="border-t border-border pt-4">
+                      <button type="button" onClick={() => setShowClaimExtras(!showClaimExtras)} className="text-xs font-medium text-primary hover:underline flex items-center gap-1">
+                        {showClaimExtras ? '−' : '+'} Additional claim details (ICD, CPT, pre-auth, etc.)
+                      </button>
+                      {showClaimExtras && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 space-y-0">
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Primary ICD Code</label><input type="text" value={claimExtras.primary_icd_code ?? ''} onChange={e => setClaimExtras(x => ({ ...x, primary_icd_code: e.target.value || undefined }))} placeholder="e.g. J06.9" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={20} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Secondary ICD Code</label><input type="text" value={claimExtras.secondary_icd_code ?? ''} onChange={e => setClaimExtras(x => ({ ...x, secondary_icd_code: e.target.value || undefined }))} placeholder="e.g. R50.9" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={20} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">CPT Code</label><input type="text" value={claimExtras.cpt_code ?? ''} onChange={e => setClaimExtras(x => ({ ...x, cpt_code: e.target.value || undefined }))} placeholder="e.g. 99213" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={20} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Procedure Category</label><input type="text" value={claimExtras.procedure_category ?? ''} onChange={e => setClaimExtras(x => ({ ...x, procedure_category: e.target.value || undefined }))} placeholder="e.g. Outpatient" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={50} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Claim Type</label><select value={claimExtras.claim_type ?? ''} onChange={e => setClaimExtras(x => ({ ...x, claim_type: e.target.value || undefined }))} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs"><option value="">—</option><option value="INPATIENT">Inpatient</option><option value="OUTPATIENT">Outpatient</option><option value="EMERGENCY">Emergency</option><option value="PREVENTIVE">Preventive</option></select></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Policy Type</label><input type="text" value={claimExtras.policy_type ?? ''} onChange={e => setClaimExtras(x => ({ ...x, policy_type: e.target.value || undefined }))} placeholder="e.g. PPO, HMO" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={50} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Medical Necessity Score (0–100)</label><input type="number" value={claimExtras.medical_necessity_score ?? ''} onChange={e => setClaimExtras(x => ({ ...x, medical_necessity_score: e.target.value ? parseInt(e.target.value, 10) : undefined }))} placeholder="0–100" min={0} max={100} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Prior Denial Count</label><input type="number" value={claimExtras.prior_denial_count ?? ''} onChange={e => setClaimExtras(x => ({ ...x, prior_denial_count: e.target.value ? parseInt(e.target.value, 10) : undefined }))} placeholder="0" min={0} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Resubmission Count</label><input type="number" value={claimExtras.resubmission_count ?? ''} onChange={e => setClaimExtras(x => ({ ...x, resubmission_count: e.target.value ? parseInt(e.target.value, 10) : undefined }))} placeholder="0" min={0} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Days to Submission</label><input type="number" value={claimExtras.days_to_submission ?? ''} onChange={e => setClaimExtras(x => ({ ...x, days_to_submission: e.target.value ? parseInt(e.target.value, 10) : undefined }))} placeholder="e.g. 7" min={0} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Coverage Limit (₹)</label><input type="number" value={claimExtras.coverage_limit ?? ''} onChange={e => setClaimExtras(x => ({ ...x, coverage_limit: e.target.value ? parseFloat(e.target.value) : undefined }))} placeholder="e.g. 50000" min={0} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Deductible (₹)</label><input type="number" value={claimExtras.deductible_amount ?? ''} onChange={e => setClaimExtras(x => ({ ...x, deductible_amount: e.target.value ? parseFloat(e.target.value) : undefined }))} placeholder="e.g. 5000" min={0} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div className="sm:col-span-2 flex flex-wrap gap-4 items-center">
+                            <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!claimExtras.documentation_complete} onChange={e => setClaimExtras(x => ({ ...x, documentation_complete: e.target.checked }))} className="rounded" /> Documentation complete</label>
+                            <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!claimExtras.preauthorization_required} onChange={e => setClaimExtras(x => ({ ...x, preauthorization_required: e.target.checked }))} className="rounded" /> Pre-auth required</label>
+                            <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!claimExtras.preauthorization_obtained} onChange={e => setClaimExtras(x => ({ ...x, preauthorization_obtained: e.target.checked }))} className="rounded" /> Pre-auth obtained</label>
+                            <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!claimExtras.chronic_condition_flag} onChange={e => setClaimExtras(x => ({ ...x, chronic_condition_flag: e.target.checked }))} className="rounded" /> Chronic condition</label>
+                          </div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Patient Age</label><input type="number" value={claimExtras.patient_age ?? ''} onChange={e => setClaimExtras(x => ({ ...x, patient_age: e.target.value ? parseInt(e.target.value, 10) : undefined }))} placeholder="e.g. 45" min={0} max={120} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Patient Gender</label><select value={claimExtras.patient_gender ?? ''} onChange={e => setClaimExtras(x => ({ ...x, patient_gender: e.target.value || undefined }))} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs"><option value="">—</option><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Doctor Specialization</label><input type="text" value={claimExtras.doctor_specialization ?? ''} onChange={e => setClaimExtras(x => ({ ...x, doctor_specialization: e.target.value || undefined }))} placeholder="e.g. Cardiology" className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" maxLength={100} /></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Hospital Tier</label><select value={claimExtras.hospital_tier ?? ''} onChange={e => setClaimExtras(x => ({ ...x, hospital_tier: e.target.value || undefined }))} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs"><option value="">—</option><option value="TIER1">Tier 1</option><option value="TIER2">Tier 2</option><option value="TIER3">Tier 3</option></select></div>
+                          <div><label className="block text-[10px] text-muted-foreground mb-0.5">Hospital Claim Success Rate (%)</label><input type="number" value={claimExtras.hospital_claim_success_rate ?? ''} onChange={e => setClaimExtras(x => ({ ...x, hospital_claim_success_rate: e.target.value ? parseFloat(e.target.value) : undefined }))} placeholder="e.g. 85.5" min={0} max={100} step={0.1} className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs" /></div>
+                        </div>
+                      )}
+                    </div>
+
+                    {claimPrediction && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mb-4"
+                      >
+                        <PredictCard
+                          variant="claim"
+                          score={claimPrediction.score}
+                          secondaryScore={claimPrediction.secondaryScore}
+                          insights={claimPrediction.insights}
+                          historicalStats={claimPrediction.historicalStats}
+                          isLoading={predictingClaim}
+                        />
+                      </motion.div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handlePredictClaim}
+                        disabled={!selectedApptId || !claimAmount || predictingClaim || parseFloat(claimAmount) <= 0}
+                        className="flex-1 py-2.5 rounded-lg border border-primary text-primary text-sm font-medium hover:bg-primary/10 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {predictingClaim ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                        Predict
+                      </button>
+                      <button
+                        onClick={() => createMutation.mutate()}
+                        disabled={!selectedApptId || !claimAmount || createMutation.isPending}
+                        className="flex-1 py-2.5 rounded-lg gradient-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all disabled:opacity-50"
+                      >
+                        {createMutation.isPending ? 'Creating…' : 'Create Claim with AI Scoring'}
+                      </button>
+                    </div>
                   </div>
                 )}
+                </div>
               </motion.div>
             </motion.div>
           )}

@@ -1,10 +1,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { TrendingDown, Bot, Sparkles } from 'lucide-react';
+import { CountUp } from './CountUp';
 
 const METRICS = [
   {
-    value: '40',
+    value: 40,
     suffix: '%',
     label: 'Fewer Denials',
     sub: 'Average reduction in claim denials',
@@ -12,7 +13,7 @@ const METRICS = [
     color: 'from-primary to-secondary',
   },
   {
-    value: '80',
+    value: 80,
     suffix: '%',
     label: 'Automation',
     sub: 'Manual work eliminated by AI bots',
@@ -20,7 +21,7 @@ const METRICS = [
     color: 'from-secondary to-accent',
   },
   {
-    value: '97',
+    value: 97,
     suffix: '%',
     label: 'AI Accuracy',
     sub: 'Prediction accuracy on denial risk',
@@ -55,8 +56,7 @@ export const LandingMetrics: React.FC = () => {
                 className="text-5xl lg:text-6xl font-extrabold"
               >
                 <span className={`bg-gradient-to-r ${m.color} bg-clip-text text-transparent`}>
-                  {m.value}
-                  {m.suffix}
+                  <CountUp value={m.value} suffix={m.suffix} duration={1500} />
                 </span>
               </motion.div>
               <h3 className="text-lg font-semibold text-foreground mt-2">{m.label}</h3>
